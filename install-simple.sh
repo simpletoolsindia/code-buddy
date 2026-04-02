@@ -36,20 +36,24 @@ check_deps() {
         missing="$missing git"
     fi
 
-    if [ -z "$NO_DEPS" ] && ! command -v cargo &> /dev/null; then
-        missing="$missing rust"
-    fi
-
-    if [ -n "$missing" ]; then
-        echo -e "${RED}[ERROR] Missing dependencies:$missing${NC}"
+    # Check for git
+    if ! command -v git &> /dev/null; then
+        echo -e "${RED}[ERROR] git is required but not found.${NC}"
         echo ""
-        echo "Install missing dependencies:"
-        echo ""
-        echo "  Ubuntu/Debian: sudo apt install git && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
-        echo "  macOS:         brew install git rustup-init && rustup-init"
-        echo "  Windows:       Download Rust from https://rustup.rs"
+        echo "Install git:"
+        echo "  Ubuntu/Debian: sudo apt install git"
+        echo "  macOS:         brew install git"
+        echo "  Windows:       Download from https://git-scm.com"
         echo ""
         exit 1
+    fi
+
+    # Install Rust if not present
+    if ! command -v cargo &> /dev/null; then
+        echo -e "${CYAN}[INFO] Rust not found. Installing Rust...${NC}"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "${HOME}/.cargo/env"
+        echo -e "${GREEN}[INFO] Rust installed successfully!${NC}"
     fi
 }
 
