@@ -51,13 +51,17 @@ Code Buddy is **5-19x faster** than original Claude Code (Node.js):
 ### One-Command Install (Linux/macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash
-```
+# MLX (Apple Silicon Mac - FREE, local inference)
+curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash -s mlx
 
-Or with configuration:
-
-```bash
+# NVIDIA NIM (FREE tier)
 curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash -s nvidia YOUR_NVIDIA_API_KEY
+
+# OpenRouter (free models available)
+curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash -s openrouter YOUR_API_KEY
+
+# Interactive setup (choose any provider)
+curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash
 ```
 
 ### Windows
@@ -101,7 +105,10 @@ cargo install --path . --force
 Install + Configure + Run:
 
 ```bash
-# With NVIDIA NIM (FREE)
+# MLX (Apple Silicon Mac - FREE, local inference)
+curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash -s mlx
+
+# NVIDIA NIM (FREE)
 curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash -s nvidia YOUR_NVIDIA_API_KEY
 
 # Then run:
