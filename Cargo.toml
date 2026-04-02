@@ -57,6 +57,7 @@ nanoid = "0.4"
 os_info = "3.1"
 sysinfo = "0.30"
 tempfile = "3.10"
+mime_guess = "2.0"
 
 # Networking
 tokio-native-tls = "0.3"

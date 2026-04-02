@@ -12,6 +12,8 @@ mod utils;
 mod plugins;
 pub mod mlx;
 pub mod hooks;
+pub mod vision;
+pub mod computer;
 
 use anyhow::Result;
 use clap::Parser;

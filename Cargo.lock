@@ -283,6 +283,7 @@ dependencies = [
  "http",
  "indicatif",
  "miette",
+ "mime_guess",
  "nanoid",
  "notify",
  "os_info",

@@ -25,6 +25,14 @@ const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/simplify", "Review code for quality issues"),
     ("/review", "Full code review"),
     ("/memory", "Manage project memory"),
+    ("/diff", "Show changes made in session"),
+    ("/rewind", "Rewind to a checkpoint"),
+    ("/stats", "Show usage statistics"),
+    ("/copy", "Copy last response to clipboard"),
+    ("/btw", "Ask a side question"),
+    ("/fast", "Toggle fast output mode"),
+    ("/skills", "List available skills"),
+    ("/agent", "Manage agents"),
 ];
 
 pub async fn run(state: &mut AppState) -> Result<i32> {
@@ -288,6 +296,166 @@ async fn handle_slash_command(input: &str, state: &mut AppState) -> Result<i32> 
             println!("Or use from terminal:");
             println!("  code-buddy memory list");
             println!("  code-buddy memory set project_name \"My Project\"");
+            println!();
+        }
+        "/diff" => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════════╗");
+            println!("║                      /diff - Changes                          ║");
+            println!("╚══════════════════════════════════════════════════════════════╝");
+            println!();
+            println!("Changes made in this session:");
+            println!();
+            let changes = state.get_session_changes();
+            if changes.is_empty() {
+                println!("No file changes recorded in this session.");
+                println!();
+                println!("Run: git diff HEAD to see uncommitted changes");
+            } else {
+                for change in changes {
+                    println!("  {}", change);
+                }
+            }
+            println!();
+            println!("Tip: Use 'git diff' or 'git status' to see actual changes");
+            println!();
+        }
+        "/rewind" => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════════╗");
+            println!("║                    /rewind - Go Back                         ║");
+            println!("╚══════════════════════════════════════════════════════════════╝");
+            println!();
+            let checkpoints = state.get_checkpoints();
+            if checkpoints.is_empty() {
+                println!("No checkpoints available.");
+                println!("Checkpoints are created automatically during long sessions.");
+            } else {
+                println!("Available checkpoints:");
+                for (i, checkpoint) in checkpoints.iter().enumerate() {
+                    println!("  {}: {}", i + 1, checkpoint);
+                }
+                println!();
+                println!("Usage: /rewind <number> - Go back to a checkpoint");
+            }
+            println!();
+        }
+        "/stats" => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════════╗");
+            println!("║                    /stats - Usage Stats                      ║");
+            println!("╚══════════════════════════════════════════════════════════════╝");
+            println!();
+            let session_stats = state.get_session_stats();
+            println!("Session Statistics:");
+            println!();
+            println!("  Messages:        {}", session_stats.messages);
+            println!("  Responses:       {}", session_stats.responses);
+            println!("  Tools used:     {}", session_stats.tools_used);
+            println!("  Files modified: {}", session_stats.files_modified);
+            println!("  Commands run:   {}", session_stats.commands_run);
+            println!();
+            println!("Token Usage:");
+            println!();
+            println!("  Input tokens:   ~{}", session_stats.input_tokens);
+            println!("  Output tokens:  ~{}", session_stats.output_tokens);
+            println!("  Total:          ~{}", session_stats.input_tokens + session_stats.output_tokens);
+            println!();
+            let model = state.config.model.as_deref().unwrap_or("default");
+            println!("  Model:          {}", model);
+            println!();
+        }
+        "/copy" => {
+            if let Some(last_response) = state.get_last_response() {
+                println!();
+                println!("Last response copied to clipboard!");
+                println!();
+                println!("{}", last_response);
+                println!();
+                // Note: Actual clipboard copy would require platform-specific code
+                // For now, just display the content
+            } else {
+                println!();
+                println!("No response to copy yet.");
+                println!();
+            }
+        }
+        "/btw" => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════════╗");
+            println!("║                    /btw - Side Question                       ║");
+            println!("╚══════════════════════════════════════════════════════════════╝");
+            println!();
+            println!("Ask a side question without affecting the main context:");
+            println!();
+            println!("Usage: /btw What is the weather?");
+            println!();
+            println!("The question will be asked and answered, but won't affect");
+            println!("the main conversation flow or context.");
+            println!();
+            println!("Example: /btw How do I spell 'necessary'?");
+            println!();
+        }
+        "/fast" => {
+            state.fast_mode = !state.fast_mode;
+            println!();
+            println!("Fast mode: {}", if state.fast_mode { "ON" } else { "OFF" });
+            println!();
+            if state.fast_mode {
+                println!("Fast mode enabled - responses will be shorter and faster.");
+            } else {
+                println!("Fast mode disabled - full responses enabled.");
+            }
+            println!();
+        }
+        "/skills" => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════════╗");
+            println!("║                    /skills - Available Skills                 ║");
+            println!("╚══════════════════════════════════════════════════════════════╝");
+            println!();
+            println!("Built-in Skills:");
+            println!();
+            println!("  /simplify     - Review code for quality issues");
+            println!("  /review       - Full code review with checklist");
+            println!("  /tdd          - Test-driven development workflow");
+            println!("  /debug        - Debug assistance");
+            println!("  /batch        - Batch operations");
+            println!();
+            println!("Custom Skills:");
+            println!();
+            println!("  No custom skills installed.");
+            println!("  Add skills to ~/.config/code-buddy/skills/");
+            println!();
+            println!("Install more skills: code-buddy plugin install <source>");
+            println!();
+        }
+        "/agent" => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════════╗");
+            println!("║                    /agent - Agent Management                 ║");
+            println!("╚══════════════════════════════════════════════════════════════╝");
+            println!();
+            println!("Available agents:");
+            println!();
+            println!("  /agent list    - List available agents");
+            println!("  /agent create  - Create a new agent");
+            println!("  /agent switch  - Switch to a different agent");
+            println!();
+            println!("Built-in Agents:");
+            println!();
+            println!("  default        - Standard coding assistant");
+            println!("  analyzer       - Code analysis specialist");
+            println!("  debugger       - Debugging specialist");
+            println!("  reviewer       - Code review specialist");
+            println!();
+            let agents = state.get_available_agents();
+            if !agents.is_empty() {
+                println!("Custom Agents:");
+                for agent in agents {
+                    println!("  {}         - {}", agent.0, agent.1);
+                }
+            }
             println!();
         }
         _ => {

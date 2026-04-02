@@ -21,6 +21,11 @@ pub struct AppState {
     pub tools: Vec<Tool>,
     pub context: ContextData,
     pub plugin_registry: Option<PluginRegistry>,
+    pub fast_mode: bool,
+    pub last_response: Option<String>,
+    pub checkpoints: Vec<Checkpoint>,
+    pub session_changes: Vec<String>,
+    pub current_agent: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,12 +49,31 @@ pub struct Tool {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Checkpoint {
+    pub id: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    pub message_count: usize,
+    pub description: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ContextData {
     pub current_directory: Option<std::path::PathBuf>,
     pub allowed_directories: Vec<std::path::PathBuf>,
     pub project_root: Option<std::path::PathBuf>,
     pub session_metadata: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SessionStats {
+    pub messages: usize,
+    pub responses: usize,
+    pub tools_used: usize,
+    pub files_modified: usize,
+    pub commands_run: usize,
+    pub input_tokens: usize,
+    pub output_tokens: usize,
 }
 
 impl AppState {
@@ -63,6 +87,11 @@ impl AppState {
             tools: Self::default_tools(),
             context: ContextData::default(),
             plugin_registry,
+            fast_mode: false,
+            last_response: None,
+            checkpoints: Vec::new(),
+            session_changes: Vec::new(),
+            current_agent: "default".to_string(),
         }
     }
 
@@ -234,5 +263,87 @@ impl AppState {
         } else {
             None
         }
+    }
+
+    /// Get session changes (files modified)
+    pub fn get_session_changes(&self) -> Vec<String> {
+        self.session_changes.clone()
+    }
+
+    /// Add a session change
+    pub fn add_session_change(&mut self, change: String) {
+        self.session_changes.push(change);
+    }
+
+    /// Get checkpoints
+    pub fn get_checkpoints(&self) -> Vec<String> {
+        self.checkpoints.iter().map(|c| c.description.clone()).collect()
+    }
+
+    /// Create a checkpoint
+    pub fn create_checkpoint(&mut self, description: &str) {
+        let checkpoint = Checkpoint {
+            id: uuid::Uuid::new_v4().to_string(),
+            timestamp: chrono::Utc::now(),
+            message_count: self.conversation_history.len(),
+            description: description.to_string(),
+        };
+        self.checkpoints.push(checkpoint);
+    }
+
+    /// Rewind to a checkpoint
+    pub fn rewind_to_checkpoint(&mut self, index: usize) -> bool {
+        if index < self.checkpoints.len() {
+            let checkpoint = &self.checkpoints[index];
+            // Keep only messages up to checkpoint
+            self.conversation_history.truncate(checkpoint.message_count);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get session statistics
+    pub fn get_session_stats(&self) -> SessionStats {
+        let messages = self.conversation_history.iter().filter(|m| m.role == "user").count();
+        let responses = self.conversation_history.iter().filter(|m| m.role == "assistant").count();
+        let input_tokens: usize = self.conversation_history.iter()
+            .filter(|m| m.role == "user")
+            .map(|m| m.content.len() / 4)
+            .sum();
+        let output_tokens: usize = self.conversation_history.iter()
+            .filter(|m| m.role == "assistant")
+            .map(|m| m.content.len() / 4)
+            .sum();
+
+        SessionStats {
+            messages,
+            responses,
+            tools_used: 0,
+            files_modified: self.session_changes.len(),
+            commands_run: 0,
+            input_tokens,
+            output_tokens,
+        }
+    }
+
+    /// Get last response
+    pub fn get_last_response(&self) -> Option<String> {
+        self.last_response.clone()
+    }
+
+    /// Set last response
+    pub fn set_last_response(&mut self, response: String) {
+        self.last_response = Some(response);
+    }
+
+    /// Get available agents
+    pub fn get_available_agents(&self) -> Vec<(String, String)> {
+        vec![
+            ("default".to_string(), "Standard coding assistant".to_string()),
+            ("analyzer".to_string(), "Code analysis specialist".to_string()),
+            ("debugger".to_string(), "Debugging specialist".to_string()),
+            ("reviewer".to_string(), "Code review specialist".to_string()),
+        ]
     }
 }
