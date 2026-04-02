@@ -63,6 +63,9 @@ fn get_config(key: &str, state: &AppState) -> Result<i32> {
         "base_url" => {
             println!("{:?}", state.config.base_url.as_deref().unwrap_or("api.anthropic.com"));
         }
+        "permission_mode" => {
+            println!("{:?}", state.config.permission_mode.as_deref().unwrap_or("default"));
+        }
         _ => {
             eprintln!("Unknown config key: {}", key);
             return Ok(1);
@@ -98,6 +101,13 @@ fn set_config(key: &str, value: &str, state: &mut AppState) -> Result<i32> {
         "api_key" => {
             state.config.api_key = Some(value.to_string());
             println!("Set api_key to: {}...", &value[..8.min(value.len())]);
+        }
+        "permission_mode" => {
+            state.config.permission_mode = Some(value.to_string());
+            println!("Set permission_mode to: {}", value);
+            if value == "bypass" {
+                println!("\n⚠️  Warning: Bypass permissions is dangerous! All commands will be auto-approved.\n");
+            }
         }
         _ => {
             eprintln!("Cannot set config key: {}. Use code-buddy config edit for full config.", key);

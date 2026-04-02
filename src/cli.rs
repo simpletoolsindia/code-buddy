@@ -250,9 +250,6 @@ pub enum CommandEnum {
 
     /// Show version
     Version,
-
-    /// Show help
-    Help,
 }
 
 // MCP subcommands

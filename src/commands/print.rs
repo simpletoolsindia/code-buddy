@@ -4,6 +4,7 @@ use crate::api::ApiClient;
 use crate::cli::OutputFormat;
 use crate::state::AppState;
 use anyhow::Result;
+use indicatif::{ProgressBar, ProgressStyle};
 
 pub async fn run(
     prompt: Vec<String>,
@@ -37,11 +38,22 @@ pub async fn run(
 }
 
 async fn run_text_mode(api_client: &ApiClient, prompt: &str, state: &mut AppState) -> Result<i32> {
-    println!("=== Response ===\n");
+    // Create spinner for loading indicator
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .template("{spinner:.cyan} {msg}")
+            .unwrap()
+    );
+    spinner.set_message("Thinking...");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
     let response = api_client.complete(prompt, &state.config, state).await?;
 
-    println!("{}", response.content);
+    spinner.finish_with_message("Done!");
+
+    println!("\n{}", response.content);
     println!("\n[Usage: {} tokens]", response.usage.total_tokens);
 
     // Update session
@@ -52,7 +64,20 @@ async fn run_text_mode(api_client: &ApiClient, prompt: &str, state: &mut AppStat
 }
 
 async fn run_json_mode(api_client: &ApiClient, prompt: &str, state: &mut AppState) -> Result<i32> {
+    // Create spinner for loading indicator
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .template("{spinner:.cyan} {msg}")
+            .unwrap()
+    );
+    spinner.set_message("Thinking...");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
     let response = api_client.complete(prompt, &state.config, state).await?;
+
+    spinner.finish_with_message("Done!");
 
     let json = serde_json::json!({
         "content": response.content,

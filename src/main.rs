@@ -65,7 +65,7 @@ async fn main() {
 }
 
 /// Run the appropriate command based on CLI arguments
-async fn run_command(cli: Cli, state: &mut AppState) -> Result<i32> {
+async fn run_command(cli: Cli, mut state: &mut AppState) -> Result<i32> {
     use cli::CommandEnum;
 
     info!("Running command: {:?}", cli.command);
@@ -80,6 +80,14 @@ async fn run_command(cli: Cli, state: &mut AppState) -> Result<i32> {
             .init();
     }
 
+    // Apply permission mode from CLI flags
+    if cli.allow_dangerously_skip_permissions {
+        state.config.permission_mode = Some("bypass".to_string());
+        println!("\n⚠️  Bypass permissions enabled - dangerous!\n");
+    } else if let Some(mode) = &cli.permission_mode {
+        state.config.permission_mode = Some(format!("{:?}", mode).to_lowercase());
+    }
+
     // Handle print mode (-p flag with prompt)
     if cli.print {
         let prompt = cli.prompt.unwrap_or_default().join(" ");
@@ -87,79 +95,74 @@ async fn run_command(cli: Cli, state: &mut AppState) -> Result<i32> {
             eprintln!("Error: -p/--print requires a prompt argument");
             return Ok(1);
         }
-        return commands::print::run(vec![prompt], cli.output_format, state).await;
+        return commands::print::run(vec![prompt], cli.output_format, &mut state).await;
     }
 
     // Execute subcommand if provided, otherwise enter interactive mode
     match cli.command {
         Some(CommandEnum::Mcp(subcommand)) => {
-            commands::mcp::run(Some(subcommand), state).await
+            commands::mcp::run(Some(subcommand), &mut state).await
         }
 
         Some(CommandEnum::Agents { list }) => {
-            commands::agents::run(list, state).await
+            commands::agents::run(list, &mut state).await
         }
 
         Some(CommandEnum::Auth(subcommand)) => {
-            commands::auth::run(Some(subcommand), state).await
+            commands::auth::run(Some(subcommand), &mut state).await
         }
 
         Some(CommandEnum::Setup) => {
-            commands::setup_run(state).await
+            commands::setup_run(&mut state).await
         }
 
         Some(CommandEnum::Reset { all }) => {
-            commands::reset_run(state, all).await
+            commands::reset_run(&mut state, all).await
         }
 
         Some(CommandEnum::Interactive) => {
-            commands::repl_run(state).await
+            commands::repl_run(&mut state).await
         }
 
         Some(CommandEnum::Doctor) => {
-            commands::doctor::run(state).await
+            commands::doctor::run(&mut state).await
         }
 
         Some(CommandEnum::Install { target }) => {
-            commands::install::run(target, state).await
+            commands::install::run(target, &mut state).await
         }
 
         Some(CommandEnum::Update) => {
-            commands::update::run(state).await
+            commands::update::run(&mut state).await
         }
 
         Some(CommandEnum::Config(subcommand)) => {
-            commands::config::run(Some(subcommand), state).await
+            commands::config::run(Some(subcommand), &mut state).await
         }
 
         Some(CommandEnum::Model { model }) => {
-            commands::model::run(model, state).await
+            commands::model::run(model, &mut state).await
         }
 
         Some(CommandEnum::Login { api_key }) => {
-            commands::auth::login(api_key, state).await
+            commands::auth::login(api_key, &mut state).await
         }
 
         Some(CommandEnum::Logout) => {
-            commands::auth::logout(state).await
+            commands::auth::logout(&mut state).await
         }
 
         Some(CommandEnum::Status) => {
-            commands::status::run(state).await
+            commands::status::run(&mut state).await
         }
 
         Some(CommandEnum::Version) => {
             commands::version::run()
         }
 
-        Some(CommandEnum::Help) => {
-            cli::Cli::print_help();
-            Ok(0)
-        }
-
         None => {
             // Interactive REPL mode
-            commands::repl_run(state).await
+            commands::repl_run(&mut state).await
         }
     }
 }
