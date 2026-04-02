@@ -14,6 +14,8 @@ pub mod mlx;
 pub mod hooks;
 pub mod vision;
 pub mod computer;
+pub mod agents;
+pub mod skills;
 
 use anyhow::Result;
 use clap::Parser;
