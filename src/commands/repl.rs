@@ -22,6 +22,9 @@ const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/system", "Show system prompt"),
     ("/set", "Set configuration option"),
     ("/update", "Check for or install updates"),
+    ("/simplify", "Review code for quality issues"),
+    ("/review", "Full code review"),
+    ("/memory", "Manage project memory"),
 ];
 
 pub async fn run(state: &mut AppState) -> Result<i32> {
@@ -223,6 +226,68 @@ async fn handle_slash_command(input: &str, state: &mut AppState) -> Result<i32> 
             if let Ok(1) = crate::commands::update::check_and_update(true).await {
                 println!("Run 'code-buddy update --yes' to update now, or restart to see this message again.");
             }
+            println!();
+        }
+        "/simplify" => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════════╗");
+            println!("║                    /simplify - Code Review                    ║");
+            println!("╚══════════════════════════════════════════════════════════════╝");
+            println!();
+            let target = parts.get(1).map(|s| s.to_string()).unwrap_or_else(|| "*".to_string());
+            println!("To run a code quality review, use natural language:");
+            println!();
+            println!("  \"simplify the code in {}\"", target);
+            println!("  \"review {} for bugs and quality issues\"", target);
+            println!("  \"find opportunities to improve code quality\"");
+            println!();
+            println!("The AI will analyze your code and suggest improvements for:");
+            println!("  • Code reuse - identify duplicated patterns");
+            println!("  • Quality issues - find potential bugs and anti-patterns");
+            println!("  • Efficiency - suggest performance improvements");
+            println!();
+        }
+        "/review" => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════════╗");
+            println!("║                   /review - Full Code Review                  ║");
+            println!("╚══════════════════════════════════════════════════════════════╝");
+            println!();
+            let scope = parts.get(1).map(|s| s.to_string()).unwrap_or_else(|| "changes".to_string());
+            println!("To run a full code review, use natural language:");
+            println!();
+            println!("  \"review the code\"");
+            println!("  \"review all changes in this session\"");
+            println!("  \"do a security review of the codebase\"");
+            println!();
+            println!("Review scope: {}", scope);
+            println!();
+            println!("The review covers:");
+            println!("  • Correctness - Does the code work?");
+            println!("  • Security - Any vulnerabilities?");
+            println!("  • Performance - Any bottlenecks?");
+            println!("  • Maintainability - Easy to understand?");
+            println!("  • Testing - Adequate test coverage?");
+            println!();
+        }
+        "/memory" => {
+            println!();
+            println!("╔══════════════════════════════════════════════════════════════╗");
+            println!("║                  /memory - Project Memory                     ║");
+            println!("╚══════════════════════════════════════════════════════════════╝");
+            println!();
+            println!("Persistent project memory commands:");
+            println!();
+            println!("  /memory list              - List all memory entries");
+            println!("  /memory get <key>        - Get a specific entry");
+            println!("  /memory set <key> <val>  - Set an entry");
+            println!("  /memory delete <key>     - Delete an entry");
+            println!("  /memory search <query>   - Search entries");
+            println!("  /memory clear            - Clear all entries");
+            println!();
+            println!("Or use from terminal:");
+            println!("  code-buddy memory list");
+            println!("  code-buddy memory set project_name \"My Project\"");
             println!();
         }
         _ => {

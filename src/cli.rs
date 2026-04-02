@@ -277,6 +277,16 @@ pub enum CommandEnum {
     /// Plugin management
     #[command(subcommand)]
     Plugin(plugin::PluginCommand),
+
+    /// Manage persistent project memory
+    Memory {
+        /// Memory action
+        #[arg(value_name = "ACTION")]
+        action: Option<String>,
+        /// Additional arguments
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
 }
 
 // MCP subcommands

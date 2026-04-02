@@ -11,6 +11,7 @@ mod tools;
 mod utils;
 mod plugins;
 pub mod mlx;
+pub mod hooks;
 
 use anyhow::Result;
 use clap::Parser;
@@ -293,6 +294,21 @@ async fn run_command(cli: Cli, state: &mut AppState) -> Result<i32> {
                         Some(commands::plugin::PluginSubcommand::Reload),
                         state,
                     ).await
+                }
+            }
+        }
+
+        Some(CommandEnum::Memory { action, args }) => {
+            let mut all_args = Vec::new();
+            if let Some(a) = action {
+                all_args.push(a);
+            }
+            all_args.extend(args);
+            match commands::memory_run(&all_args) {
+                Ok(_) => Ok(0),
+                Err(e) => {
+                    eprintln!("Memory error: {}", e);
+                    Ok(1)
                 }
             }
         }

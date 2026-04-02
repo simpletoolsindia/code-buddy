@@ -249,7 +249,7 @@ impl ApiClient {
             }
             LlmProvider::Nvidia => {
                 headers.insert("authorization".to_string(), format!("Bearer {}", config.api_key.clone().unwrap_or_default()));
-                headers.insert("NVIDIA-Cusation-Id".to_string(), "nexus-2".to_string());
+                headers.insert("NVIDIA-Call-Id".to_string(), "nexus-2".to_string());
             }
             LlmProvider::Ollama | LlmProvider::LmStudio => {
                 // No auth required for local

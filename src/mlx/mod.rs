@@ -90,12 +90,26 @@ impl MlxConfig {
             return false;
         }
 
-        // Check CPU brand for Apple Silicon
-        let cpu_brand = std::fs::read_to_string("/proc/cpuinfo")
-            .map(|s| s.to_lowercase())
-            .unwrap_or_default();
+        // On macOS, check if we're running on ARM64 architecture
+        // Using sysctl to check hw.optional.arm64 (1 = ARM64 available)
+        if let Ok(output) = Command::new("sysctl")
+            .args(["-n", "hw.optional.arm64"])
+            .output()
+        {
+            let result = String::from_utf8_lossy(&output.stdout);
+            return result.trim() == "1";
+        }
 
-        cpu_brand.contains("apple") || cpu_brand.contains("m1") || cpu_brand.contains("m2") || cpu_brand.contains("m3") || cpu_brand.contains("m4")
+        // Fallback: check uname for arm64
+        if let Ok(output) = Command::new("uname")
+            .args(["-m"])
+            .output()
+        {
+            let arch = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+            return arch == "arm64";
+        }
+
+        false
     }
 
     /// Check if mlx-lm is installed
@@ -212,8 +226,6 @@ impl MlxConfig {
             id: String,
             #[serde(default)]
             downloads: Option<u64>,
-            #[serde(default)]
-            model_id: Option<String>,
         }
 
         let models: Vec<HfModel> = response.json().await.context("Failed to parse response")?;
