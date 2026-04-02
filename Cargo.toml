@@ -1,6 +1,6 @@
 [package]
 name = "code-buddy"
-version = "2.1.88"
+version = "2.1.89"
 edition = "2021"
 authors = ["Code Buddy Team"]
 description = "Code Buddy - AI coding assistant with multi-provider LLM support"

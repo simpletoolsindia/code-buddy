@@ -258,6 +258,103 @@ Execute operations across multiple files or components.
 /docs changelog       - Generate changelog
 /docs comments        - Improve code comments"#)
             .with_tools(vec!["Read", "Write", "Glob"]),
+
+        // Remember Skill
+        Skill::new("remember", "Remember", "Save information to memory for later recall", SkillCategory::Workflow)
+            .with_instructions(r#"# /remember - Persistent Memory
+
+Save information to memory that persists across sessions.
+
+## Usage
+/remember <text>         - Save text to memory
+/remember list            - List all memories
+/remember search <query>  - Search memories
+/remember delete <id>     - Delete a memory
+
+## Examples
+/remember API endpoint is https://api.example.com
+/remember Project uses PostgreSQL 15
+/remember list
+
+## Notes
+- Memories persist across sessions
+- Search by keyword to find related information
+- Use clear names for easy recall"#)
+            .with_tools(vec!["Read", "Write"]),
+
+        // Loop Skill
+        Skill::new("loop", "Loop", "Run a command or task on a recurring interval", SkillCategory::Workflow)
+            .with_instructions(r#"# /loop - Recurring Task Loop
+
+Run a task or command on a recurring interval.
+
+## Usage
+/loop <interval> <command>  - Run command every interval
+/loop status               - Show running loops
+/loop stop <id>           - Stop a loop
+
+## Intervals
+- 5m, 10m, 30m - Minutes
+- 1h, 2h, 6h   - Hours
+- daily         - Once per day
+
+## Examples
+/loop 5m /status           - Check status every 5 minutes
+/loop 1h /health-check     - Health check every hour
+/loop daily /backup         - Daily backup
+
+## Notes
+- Loops run in the background
+- Use /loop stop to cancel
+- Maximum 5 concurrent loops"#)
+            .with_tools(vec!["Bash", "Read"]),
+
+        // Verify Skill
+        Skill::new("verify", "Verify", "Verify code correctness and test coverage", SkillCategory::Test)
+            .with_instructions(r#"# /verify - Code Verification
+
+Verify code changes are correct and well-tested.
+
+## Usage
+/verify                   - Verify all changes
+/verify <file>           - Verify specific file
+/verify tests           - Run and verify tests
+/verify coverage        - Check test coverage
+
+## Checklist
+- [ ] Code compiles without errors
+- [ ] Tests pass
+- [ ] No regression in existing functionality
+- [ ] Code follows style guidelines
+- [ ] Documentation updated if needed
+
+## Examples
+/verify src/main.rs
+/verify tests
+/verify coverage"#)
+            .with_tools(vec!["Bash", "Read", "Glob"]),
+
+        // Schedule Remote Agents Skill
+        Skill::new("schedule", "Schedule", "Schedule agents to run at specific times", SkillCategory::Workflow)
+            .with_instructions(r#"# /schedule - Schedule Remote Agents
+
+Schedule agents to execute tasks at specific times.
+
+## Usage
+/schedule <time> <task>   - Schedule a task
+/schedule list             - List scheduled tasks
+/schedule cancel <id>      - Cancel scheduled task
+
+## Examples
+/schedule "tomorrow 9am" Run tests
+/schedule "every monday" Generate report
+/schedule "in 2 hours" Deploy staging
+
+## Notes
+- Times are in local timezone
+- Tasks run even if you're not present
+- Results saved to log file"#)
+            .with_tools(vec!["Bash", "Read"]),
     ]
 }
 

@@ -1,26 +1,100 @@
 //! Command implementations
+//!
+//! This module contains all available commands for Code Buddy.
 
 pub mod agent;
 pub mod agents;
 pub mod auth;
+pub mod clear;
+pub mod compact;
 pub mod config;
+pub mod commit;
+pub mod desktop;
 pub mod doctor;
+pub mod exit;
+pub mod export_cmd;
+pub mod feedback;
+pub mod files;
+pub mod help_cmd;
+pub mod hooks_cmd;
+pub mod ide;
+pub mod init;
 pub mod install;
+pub mod issues;
+pub mod keybindings;
+pub mod login;
 pub mod memory;
 pub mod mcp;
 pub mod model;
+pub mod permissions_cmd;
+pub mod plan;
 pub mod plugin;
 pub mod print;
+pub mod plugins_cmd;
 pub mod repl;
 pub mod reset;
+pub mod resume_cmd;
+pub mod session;
 pub mod setup;
+pub mod share;
 pub mod slash;
-pub mod status;
+pub mod status_cmd;
+pub mod tag_cmd;
+pub mod tasks;
+pub mod teleport;
+pub mod theme;
+pub mod thinkback;
+pub mod summarize;
 pub mod update;
+pub mod upgrade;
+pub mod usage;
 pub mod version;
+pub mod voice;
 
+pub use clear::run as clear_run;
+pub use compact::run as compact_run;
+pub use commit::run as commit_run;
+pub use config::run as config_run;
+pub use desktop::run as desktop_run;
+pub use exit::run as exit_run;
+pub use export_cmd::run as export_run;
+pub use feedback::run as feedback_run;
+pub use files::run as files_run;
+pub use help_cmd::run as help_run;
+pub use hooks_cmd::run as hooks_run;
+pub use ide::run as ide_run;
+pub use init::run as init_run;
+pub use issues::run as issues_run;
+pub use keybindings::run as keybindings_run;
+pub use login::run as login_run;
 pub use memory::run as memory_run;
+pub use mcp::run as mcp_run;
+pub use model::run as model_run;
+pub use permissions_cmd::run as permissions_run;
+pub use plan::run as plan_run;
+pub use plugin::run as plugin_run;
+pub use plugins_cmd::run as plugins_run;
 pub use repl::run as repl_run;
 pub use reset::run as reset_run;
+pub use resume_cmd::run as resume_run;
+pub use session::run as session_run;
 pub use setup::run as setup_run;
+pub use share::run as share_run;
 pub use slash::run_slash_command;
+pub use status_cmd::run as status_run;
+pub use summarize::run as summarize_run;
+pub use tag_cmd::run as tag_run;
+pub use tasks::run as tasks_run;
+pub use teleport::run as teleport_run;
+pub use theme::run as theme_run;
+pub use thinkback::run as thinkback_run;
+pub use thinkback::run_play as thinkback_play_run;
+pub use upgrade::run as upgrade_run;
+pub use usage::run as usage_run;
+pub use version::run as version_run;
+pub use voice::run as voice_run;
+
+// Re-export status and update for main.rs compatibility
+pub mod status {
+    pub use super::repl::run;
+}

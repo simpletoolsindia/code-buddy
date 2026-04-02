@@ -46,6 +46,144 @@ Code Buddy is **5-19x faster** than original Claude Code (Node.js):
 - **JSON Output**: Machine-readable output format
 - **Streaming**: Real-time token streaming
 
+### CLI Commands (50+ Commands)
+Code Buddy includes all Claude Code-compatible commands:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show help information |
+| `/diff` | Show git diff |
+| `/rewind` | Rewind conversation to checkpoint |
+| `/stats` | Show session statistics |
+| `/copy` | Copy text to clipboard |
+| `/btw` | Add a side note |
+| `/fast` | Toggle fast mode |
+| `/skills` | Manage skills |
+| `/agent` | Switch or manage agents |
+| `/simplify` | Simplify code |
+| `/review` | Full code review |
+| `/context` | Show context info |
+| `/cost` | Show cost estimation |
+| `/plan` | Create implementation plan |
+| `/tasks` | Task tracking |
+| `/commit` | Smart git commits |
+| `/clear` | Clear conversation |
+| `/compact` | Compact conversation |
+| `/doctor` | Health checks |
+| `/config` | Configuration editor |
+| `/theme` | Theme configuration |
+| `/init` | Project initialization |
+| `/export` | Export session/data |
+| `/feedback` | Send feedback |
+| `/files` | File listing |
+| `/hooks` | Automation hooks |
+| `/ide` | IDE integration |
+| `/issues` | Issue tracking |
+| `/keybindings` | Keyboard shortcuts |
+| `/login` | Authentication |
+| `/model` | Model management |
+| `/permissions` | Permission settings |
+| `/plugins` | Plugin management |
+| `/resume` | Resume sessions |
+| `/session` | Session management |
+| `/share` | Share content |
+| `/status` | Show status |
+| `/summarize` | Summarize conversation |
+| `/tag` | Tag management |
+| `/teleport` | Remote sessions |
+| `/upgrade` | Software upgrade |
+| `/usage` | Usage statistics |
+| `/voice` | Voice mode |
+| `/desktop` | Desktop control |
+| `/think-back` | Conversation replay |
+| `/version` | Version info |
+| `/exit` | Exit Code Buddy |
+
+### Tools (30+ Tools)
+Code Buddy includes all Claude Code-compatible tools:
+
+| Tool | Description |
+|------|-------------|
+| `BashTool` | Execute shell commands |
+| `ReadTool` | Read files |
+| `WriteTool` | Write files |
+| `EditTool` | Edit files |
+| `GlobTool` | Find files by pattern |
+| `GrepTool` | Search file contents |
+| `WebSearchTool` | Search the web |
+| `WebFetchTool` | Fetch web pages |
+| `AskUserQuestionTool` | Interactive questions |
+| `NotebookEditTool` | Jupyter notebooks |
+| `ListMcpResourcesTool` | MCP resources |
+| `ReadMcpResourceTool` | Read MCP resource |
+| `McpServersTool` | Manage MCP servers |
+| `TaskCreateTool` | Create tasks |
+| `TaskCompleteTool` | Complete tasks |
+
+### Skills (15+ Built-in Skills)
+| Skill | Category | Description |
+|-------|----------|-------------|
+| `simplify` | Code | Review code quality |
+| `review` | Code | Full code review |
+| `tdd` | Test | Test-driven development |
+| `debug` | Debug | Debugging assistant |
+| `batch` | Workflow | Batch operations |
+| `security` | Security | Security analysis |
+| `devops` | DevOps | CI/CD assistance |
+| `database` | Database | Database helper |
+| `docs` | Documentation | Documentation generator |
+| `remember` | Workflow | Persistent memory |
+| `loop` | Workflow | Recurring tasks |
+| `verify` | Test | Code verification |
+| `schedule` | Workflow | Schedule remote agents |
+
+### Multi-Agent System
+| Built-in Agent | Description |
+|----------------|-------------|
+| `default` | Standard coding assistant |
+| `analyzer` | Code analysis specialist |
+| `debugger` | Debugging specialist |
+| `reviewer` | Code review specialist |
+| `tester` | Testing specialist |
+| `architect` | Software architect |
+| `explore` | Codebase exploration |
+| `plan` | Planning agent |
+| `verification` | Verification agent |
+| `guide` | Claude Code guide |
+| `general-purpose` | General purpose |
+| `statusline-setup` | Statusline config |
+
+### Hooks System (16+ Events)
+| Hook Event | Description |
+|------------|-------------|
+| `before_write` | Before file write |
+| `after_write` | After file write |
+| `before_submit` | Before message submit |
+| `after_submit` | After message submit |
+| `on_error` | On error occurrence |
+| `on_compact` | On conversation compact |
+| `before_command` | Before command run |
+| `after_command` | After command run |
+| `on_start` | On session start |
+| `on_exit` | On session exit |
+| `on_tool_use` | On tool execution |
+| `before_api_call` | Before API call |
+| `after_api_call` | After API call |
+| `on_task_create` | On task creation |
+| `on_task_complete` | On task completion |
+| `on_agent_spawn` | On agent spawn |
+
+### Vision Support
+- Screenshot capture (macOS/Linux/Windows)
+- Vision model detection
+- Automatic vision request handling when model supports it
+
+### Computer Use
+- Mouse movement and clicks
+- Keyboard input
+- Screenshot capture
+- Platform-specific implementations
+
 ## Installation
 
 ### One-Command Install (Linux/macOS)
@@ -600,10 +738,17 @@ cargo tarpaulin
 - [x] Interactive REPL mode
 - [x] Full tool execution (Bash, Read, Edit, Glob, Grep, Web)
 - [x] Plugin system
-- [x] Comprehensive unit tests (114+ tests)
-- [ ] Voice mode
-- [ ] IDE integration
-- [ ] Team collaboration features
+- [x] Comprehensive unit tests (150+ tests)
+- [x] CLI Commands (50+ commands)
+- [x] Skills System (15+ skills)
+- [x] Multi-Agent System (12+ agents)
+- [x] Hooks System (16+ events)
+- [x] Vision Support
+- [x] Computer Use
+- [x] Task Tracking
+- [x] Session Management
+- [x] Theme Configuration
+- [x] Keybindings
 
 ## License
 

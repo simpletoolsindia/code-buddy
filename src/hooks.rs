@@ -65,6 +65,27 @@ pub enum HookEvent {
     /// On session end
     #[serde(rename = "on_exit")]
     OnExit,
+    /// Before tool execution
+    #[serde(rename = "on_tool_use")]
+    OnToolUse,
+    /// Before API call
+    #[serde(rename = "before_api_call")]
+    BeforeApiCall,
+    /// After API call
+    #[serde(rename = "after_api_call")]
+    AfterApiCall,
+    /// On task creation
+    #[serde(rename = "on_task_create")]
+    OnTaskCreate,
+    /// On task completion
+    #[serde(rename = "on_task_complete")]
+    OnTaskComplete,
+    /// On agent spawn
+    #[serde(rename = "on_agent_spawn")]
+    OnAgentSpawn,
+    /// On agent complete
+    #[serde(rename = "on_agent_complete")]
+    OnAgentComplete,
 }
 
 impl HookEvent {
@@ -80,6 +101,13 @@ impl HookEvent {
             HookEvent::AfterCommand => "after_command",
             HookEvent::OnStart => "on_start",
             HookEvent::OnExit => "on_exit",
+            HookEvent::OnToolUse => "on_tool_use",
+            HookEvent::BeforeApiCall => "before_api_call",
+            HookEvent::AfterApiCall => "after_api_call",
+            HookEvent::OnTaskCreate => "on_task_create",
+            HookEvent::OnTaskComplete => "on_task_complete",
+            HookEvent::OnAgentSpawn => "on_agent_spawn",
+            HookEvent::OnAgentComplete => "on_agent_complete",
         }
     }
 
@@ -95,6 +123,13 @@ impl HookEvent {
             "after_command" => Some(HookEvent::AfterCommand),
             "on_start" => Some(HookEvent::OnStart),
             "on_exit" => Some(HookEvent::OnExit),
+            "on_tool_use" => Some(HookEvent::OnToolUse),
+            "before_api_call" => Some(HookEvent::BeforeApiCall),
+            "after_api_call" => Some(HookEvent::AfterApiCall),
+            "on_task_create" => Some(HookEvent::OnTaskCreate),
+            "on_task_complete" => Some(HookEvent::OnTaskComplete),
+            "on_agent_spawn" => Some(HookEvent::OnAgentSpawn),
+            "on_agent_complete" => Some(HookEvent::OnAgentComplete),
             _ => None,
         }
     }

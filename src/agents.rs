@@ -61,6 +61,20 @@ pub fn default_agents() -> Vec<Agent> {
             .with_tools(vec!["Read", "Write", "Bash", "Glob"]),
         Agent::new("architect", "Architect", "software architect", "Designs system architecture")
             .with_tools(vec!["Read", "Glob", "WebFetch"]),
+        Agent::new("explore", "Explorer", "codebase exploration agent", "Explores and maps codebase structure")
+            .with_tools(vec!["Read", "Glob", "Grep"]),
+        Agent::new("plan", "Planner", "planning agent", "Creates detailed implementation plans")
+            .with_tools(vec!["Read", "Write", "Glob", "WebFetch"]),
+        Agent::new("verification", "Verifier", "verification agent", "Verifies implementations against specs")
+            .with_tools(vec!["Read", "Write", "Bash", "Glob"]),
+        Agent::new("guide", "Claude Code Guide", "guide agent", "Helps users learn Claude Code features")
+            .with_tools(vec!["Read"]),
+        Agent::new("claude-code-guide", "Claude Code Guide", "guide agent", "Helps users learn Claude Code features")
+            .with_tools(vec!["Read"]),
+        Agent::new("general-purpose", "General Purpose Agent", "general purpose agent", "Handles diverse tasks")
+            .with_tools(vec!["Read", "Write", "Edit", "Bash", "Grep", "Glob", "WebSearch", "WebFetch"]),
+        Agent::new("statusline-setup", "Statusline Setup", "statusline configuration agent", "Configures statusline display")
+            .with_tools(vec!["Read", "Write"]),
     ]
 }
 
