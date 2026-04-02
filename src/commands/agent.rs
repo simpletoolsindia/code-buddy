@@ -1,19 +1,21 @@
-//! Agent - Handles tool execution loop
+//! Agent - Handles tool execution loop (Claude Code style)
 
 use crate::api::{ApiClient, CompletionResponse};
 use crate::state::AppState;
 use crate::tools::executor::{execute_tool, get_tools_description, ToolResult};
 use anyhow::Result;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 const MAX_TOOL_CALLS: u32 = 10;
-const TOOL_CALL_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub struct Agent {
     pub client: ApiClient,
     pub state: AppState,
     pub bypass_permissions: bool,
+    pub verbose: bool,
+    pub tool_results: HashMap<String, String>,
 }
 
 impl Agent {
@@ -27,13 +29,15 @@ impl Agent {
             client,
             state: state.clone(),
             bypass_permissions,
+            verbose: false,
+            tool_results: HashMap::new(),
         })
     }
 
-    /// Run a prompt with tool execution
+    /// Run a prompt with tool execution - Claude Code style
     pub async fn run(&mut self, prompt: &str) -> Result<CompletionResponse> {
         let start_time = Instant::now();
-        let mut tool_calls_count = 0;
+        let mut tool_calls_count = 0u32;
 
         // Add the user's prompt to history
         self.state.add_message("user", prompt);
@@ -41,65 +45,103 @@ impl Agent {
         // Build system prompt with tools
         let system_prompt = self.build_system_prompt();
 
+        // Show thinking indicator
+        print!("\n");
+        self.show_thinking();
+
         // Make initial request
         let response = self.make_request(&system_prompt, prompt).await?;
+
+        // Hide thinking, show response
+        self.hide_thinking();
 
         // Check if response contains tool calls
         let tool_calls = self.extract_tool_calls(&response.content);
 
         if tool_calls.is_empty() {
-            // No tool calls, return the response
+            // No tool calls, print response and return
+            self.print_response(&response.content);
             self.state.add_message("assistant", &response.content);
             return Ok(response);
         }
 
         // Tool execution loop
         let mut final_response = response;
+        let mut all_tool_results = String::new();
 
         while !tool_calls.is_empty() && tool_calls_count < MAX_TOOL_CALLS {
             tool_calls_count += 1;
 
-            println!("\n🔧 Executing {} tool(s)...\n", tool_calls.len());
+            println!();
+            self.show_progress(&format!("Running {} tool(s)...", tool_calls.len()));
 
             // Execute all tool calls
-            let mut tool_results = Vec::new();
-            for call in &tool_calls {
-                let result = self.execute_tool_call(call);
-                tool_results.push(result);
-            }
+            let mut results: Vec<ToolResult> = Vec::new();
+            let mut result_summaries: Vec<String> = Vec::new();
 
-            // Print tool results
-            for (call, result) in tool_calls.iter().zip(tool_results.iter()) {
-                let tool_name = &call["name"].as_str().unwrap_or("unknown");
-                if result.success {
-                    println!("✅ {}: Success", tool_name);
-                } else {
-                    println!("❌ {}: {}", tool_name, result.error.as_ref().unwrap_or(&"Unknown error".to_string()));
+            for (i, call) in tool_calls.iter().enumerate() {
+                let tool_name = call["name"].as_str().unwrap_or("unknown");
+                let summary = self.get_tool_summary(call);
+
+                print!("\r  {} ", self.get_tool_icon(tool_name));
+                print!("{}", summary);
+                if summary.len() < 50 {
+                    print!("{}", " ".repeat(50 - summary.len()));
                 }
-            }
-            println!();
+                std::io::Write::flush(&mut std::io::stdout()).ok();
 
-            // Add tool calls and results to conversation
-            let tool_msg = self.format_tool_calls_for_api(&tool_calls, &tool_results);
+                let result = self.execute_tool_call(call);
+
+                if result.success {
+                    let content = if result.output.len() > 100 {
+                        format!("{}... ({} chars)", &result.output[..100], result.output.len())
+                    } else {
+                        result.output.clone()
+                    };
+                    result_summaries.push(content);
+                    println!("\r  {} {} ", self.get_checkmark(), summary);
+                } else {
+                    println!("\r  {} {} Error: {}", self.get_x_mark(), summary, result.error.as_deref().unwrap_or("Unknown error"));
+                }
+                results.push(result);
+            }
+
+            // Add tool results to conversation for next turn
+            let tool_msg = self.format_tool_calls_for_api(&tool_calls, &results);
+            all_tool_results.push_str(&tool_msg);
             self.state.add_message("user", &tool_msg);
 
+            // Show thinking for next API call
+            self.show_thinking();
+
             // Make next request with tool results
-            final_response = self.make_request(&system_prompt, "").await?;
+            final_response = self.make_request_with_history(&system_prompt, prompt).await?;
+
+            self.hide_thinking();
 
             // Check for more tool calls
             let new_tool_calls = self.extract_tool_calls(&final_response.content);
+
             if new_tool_calls.is_empty() {
+                // No more tool calls, we're done
                 break;
             }
+
             // Continue loop with new tool calls
         }
+
+        // Print final response
+        self.print_response(&final_response.content);
 
         // Add final response to history
         self.state.add_message("assistant", &final_response.content);
 
         // Print elapsed time
         let elapsed = start_time.elapsed();
-        println!("\n⏱️  Completed in {:.1}s ({} tool calls)\n", elapsed.as_secs_f64(), tool_calls_count);
+        if elapsed.as_secs() > 2 {
+            println!("\n  Completed in {:.1}s ({} tool calls)", elapsed.as_secs_f64(), tool_calls_count);
+        }
+        println!();
 
         Ok(final_response)
     }
@@ -107,66 +149,71 @@ impl Agent {
     fn build_system_prompt(&self) -> String {
         let tools = get_tools_description();
         let bypass_note = if self.bypass_permissions {
-            "\n\n⚠️ IMPORTANT: You have BYPASS PERMISSIONS enabled. You can execute ANY command without confirmation. Use this power wisely!"
+            "\n\n⚠️ BYPASS MODE: You have permission to execute any command without confirmation."
         } else {
             ""
         };
 
         format!(
-            r#"You are Code Buddy, a helpful AI coding assistant.
+            r#"You are Code Buddy, a CLI coding assistant similar to Claude Code.
+
+You have access to tools to complete tasks. When a user asks you to:
+- Create files: Use the write tool
+- Run commands: Use the bash tool
+- Read files: Use the read tool
+- Edit files: Use the edit tool
 
 {tools}{bypass_note}
 
-IMPORTANT INSTRUCTIONS:
-1. When asked to create code, WRITE the file first using the write tool
-2. When asked to run/deploy/execute, use the bash tool to run commands
-3. After deploying, provide the user with a URL or instructions to access the result
-4. Be concise but complete in your responses
-5. If a command produces a URL or port, share it with the user
-
-Remember: Use tools to actually do tasks, not just suggest them!
+Guidelines:
+1. Execute tools to actually DO tasks, not just describe them
+2. After running a server/deploy command, report the URL
+3. Be concise but complete
+4. When you run a command, show the user what you're doing
 "#
         )
     }
 
     async fn make_request(&self, system_prompt: &str, user_prompt: &str) -> Result<CompletionResponse> {
-        // Create a modified state with system message
-        let mut request_state = self.state.clone();
+        let full_prompt = format!("{}\n\nUser: {}", system_prompt, user_prompt);
+        self.client.complete(&full_prompt, &self.state.config, &self.state).await
+    }
 
-        // For simplicity, we'll modify the prompt to include system instructions
-        let full_prompt = if user_prompt.is_empty() {
-            "Continue with the task. You have tool results above."
-        } else {
-            user_prompt
-        };
+    async fn make_request_with_history(&self, system_prompt: &str, _original_prompt: &str) -> Result<CompletionResponse> {
+        // Build conversation with history
+        let mut messages = String::new();
 
-        let final_prompt = format!("{}\n\nUser: {}", system_prompt, full_prompt);
+        // Add history
+        for msg in &self.state.conversation_history {
+            let role = if msg.role == "user" { "User" } else { "Assistant" };
+            messages.push_str(&format!("\n\n{}: {}\n", role, msg.content));
+        }
 
-        self.client.complete(&final_prompt, &self.state.config, &self.state).await
+        let full_prompt = format!("{}\n\nConversation so far:{}",
+            system_prompt,
+            if messages.is_empty() { " (new conversation)".to_string() } else { messages }
+        );
+
+        self.client.complete(&full_prompt, &self.state.config, &self.state).await
     }
 
     fn extract_tool_calls(&self, content: &str) -> Vec<Value> {
         let mut calls = Vec::new();
+        let mut seen_calls: HashMap<String, bool> = HashMap::new();
 
         // Try to parse as JSON with tool_calls array
         if let Ok(json) = serde_json::from_str::<Value>(content) {
             if let Some(tc) = json.get("tool_calls").and_then(|v| v.as_array()) {
                 for call in tc {
-                    let name = call.get("name").and_then(|v| v.as_str());
-                    let args = call.get("arguments").or(call.get("args")).unwrap_or(&serde_json::Value::Null);
-                    if let Some(name_str) = name {
-                        let args_str = if let Some(s) = args.as_str() {
-                            s.to_string()
-                        } else if let Some(obj) = args.as_object() {
-                            serde_json::to_string(obj).unwrap_or_default()
-                        } else {
-                            args.to_string()
-                        };
+                    if let Some(name) = call.get("name").and_then(|v| v.as_str()) {
+                        let args = call.get("arguments").or(call.get("args")).unwrap_or(&serde_json::Value::Null);
+                        let call_id = format!("{}-{:?}", name, args);
 
-                        if let Ok(args_json) = serde_json::from_str::<serde_json::Value>(&args_str) {
+                        if !seen_calls.contains_key(&call_id) {
+                            seen_calls.insert(call_id, true);
                             calls.push(serde_json::json!({
-                                "name": name_str,
-                                "arguments": args_json
+                                "name": name,
+                                "arguments": args
                             }));
                         }
                     }
@@ -174,48 +221,124 @@ Remember: Use tools to actually do tasks, not just suggest them!
             }
         }
 
-        // Try to extract bash(...) or tool(...) calls from text
-        let patterns = [
-            // bash("command") or bash('command')
-            (r#"bash\s*\(\s*["']([^"']+)["']\s*\)"#, "bash"),
-            // run("command") or run('command')
-            (r#"run\s*\(\s*["']([^"']+)["']\s*\)"#, "bash"),
-            // execute("command") or execute('command')
-            (r#"execute\s*\(\s*["']([^"']+)["']\s*\)"#, "bash"),
-            // write("file", "content") or write('file', 'content')
-            (r#"write\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']*)["']\s*\)"#, "write"),
-            // read("file") or read('file')
-            (r#"read\s*\(\s*["']([^"']+)["']\s*\)"#, "read"),
-            // ```bash\ncommand\n```
-            (r#"```bash\s*\n([\s\S]*?)\n```"#, "bash"),
-            // ```sh\ncommand\n```
-            (r#"```sh\s*\n([\s\S]*?)\n```"#, "bash"),
-            // Single line commands in bash blocks
-            (r#"```bash\s*([\s\S]*?)```"#, "bash"),
-        ];
+        // Extract from text patterns - Claude Code style
+        let text_calls = self.extract_from_text(content);
+        for call in text_calls {
+            let name = call["name"].as_str().unwrap_or("unknown");
+            let args_str = serde_json::to_string(&call["arguments"]).unwrap_or_default();
+            let call_id = format!("{}-{}", name, args_str);
 
-        for (pattern, tool_name) in &patterns {
-            if let Ok(re) = regex::Regex::new(pattern) {
-                for cap in re.captures_iter(content) {
-                    let cmd = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
-                    if !cmd.is_empty() && cmd.len() < 10000 {
-                        if *tool_name == "write" {
-                            // For write commands, extract path and content
-                            let content = cap.get(2).map(|m| m.as_str()).unwrap_or("");
-                            calls.push(serde_json::json!({
-                                "name": "write",
-                                "arguments": serde_json::json!({
-                                    "path": cmd,
-                                    "content": content
-                                })
-                            }));
-                        } else {
-                            calls.push(serde_json::json!({
-                                "name": tool_name,
-                                "arguments": cmd.to_string()
-                            }));
-                        }
+            if !seen_calls.contains_key(&call_id) {
+                seen_calls.insert(call_id, true);
+                calls.push(call);
+            }
+        }
+
+        calls
+    }
+
+    fn extract_from_text(&self, content: &str) -> Vec<Value> {
+        let mut calls: Vec<Value> = Vec::new();
+        let mut seen: HashMap<String, bool> = HashMap::new();
+
+        // First, look for standalone bash code blocks that contain actual commands
+        // These take priority as they're most reliable
+        let code_block_re = regex::Regex::new(r#"```(?:bash|sh)\s*\n([\s\S]*?)```"#).unwrap();
+        for cap in code_block_re.captures_iter(content) {
+            let block = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            let lines: Vec<&str> = block.lines()
+                .filter(|l| {
+                    let trimmed = l.trim();
+                    // Skip empty lines and comments
+                    !trimmed.is_empty() && !trimmed.starts_with('#')
+                })
+                .collect();
+
+            if !lines.is_empty() {
+                let cmd = lines.join("; ");
+                // Check if it's a valid command (not path-like or documentation)
+                if !cmd.starts_with('/') && !cmd.contains("example") && cmd.len() < 2000 {
+                    let key = format!("bash:{}", cmd);
+                    if !seen.contains_key(&key) {
+                        seen.insert(key, true);
+                        calls.push(serde_json::json!({
+                            "name": "bash",
+                            "arguments": cmd
+                        }));
                     }
+                }
+            }
+        }
+
+        // Look for write tool calls with proper syntax
+        // write("path", "content") or write('path', 'content')
+        let write_re = regex::Regex::new(r#"write\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']*)["']\s*\)"#).unwrap();
+        for cap in write_re.captures_iter(content) {
+            let path = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+            let file_content = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+
+            // Validate path - should not be absolute with /path/to or contain weird chars
+            if !path.is_empty()
+                && !path.starts_with("/path/")
+                && !path.contains("/to/")
+                && path.len() < 300
+                && !file_content.is_empty()
+            {
+                let key = format!("write:{}:{}", path, &file_content[..file_content.len().min(50)]);
+                if !seen.contains_key(&key) {
+                    seen.insert(key, true);
+                    calls.push(serde_json::json!({
+                        "name": "write",
+                        "arguments": {
+                            "path": path,
+                            "content": file_content
+                        }
+                    }));
+                }
+            }
+        }
+
+        // Look for bash("command") style calls
+        let bash_re = regex::Regex::new(r#"bash\s*\(\s*["']([^"']+)["']\s*\)"#).unwrap();
+        for cap in bash_re.captures_iter(content) {
+            let cmd = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+
+            // Filter out paths and documentation
+            if !cmd.is_empty()
+                && !cmd.starts_with('/')
+                && !cmd.contains("/path/")
+                && !cmd.contains("example")
+                && !cmd.contains("...")
+                && cmd.len() < 2000
+            {
+                let key = format!("bash:{}", cmd);
+                if !seen.contains_key(&key) {
+                    seen.insert(key, true);
+                    calls.push(serde_json::json!({
+                        "name": "bash",
+                        "arguments": cmd
+                    }));
+                }
+            }
+        }
+
+        // Look for simple bash commands at the start of lines
+        let simple_bash_re = regex::Regex::new(r#"^\s*(?:bash|sh)\s+([^\n]+)"#).unwrap();
+        for cap in simple_bash_re.captures_iter(content) {
+            let cmd = cap.get(1).map(|m| m.as_str().trim()).unwrap_or("");
+
+            if !cmd.is_empty()
+                && !cmd.starts_with('-')
+                && !cmd.contains("example")
+                && cmd.len() < 1000
+            {
+                let key = format!("bash:{}", cmd);
+                if !seen.contains_key(&key) {
+                    seen.insert(key, true);
+                    calls.push(serde_json::json!({
+                        "name": "bash",
+                        "arguments": cmd
+                    }));
                 }
             }
         }
@@ -227,67 +350,232 @@ Remember: Use tools to actually do tasks, not just suggest them!
         let name = call["name"].as_str().unwrap_or("unknown");
         let args = &call["arguments"];
 
-        // Parse arguments
-        let args_vec: Vec<String> = if let Some(arr) = args.as_array() {
-            arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
-        } else if let Some(obj) = args.as_object() {
-            // For bash commands, extract the command string
-            if name == "bash" || name == "run" || name == "execute" {
-                if let Some(cmd) = obj.get("command").or(obj.get("cmd")).or(obj.get("0")).and_then(|v| v.as_str()) {
-                    vec![cmd.to_string()]
-                } else {
-                    vec![]
-                }
-            } else if name == "write" {
-                let path = obj.get("path").or(obj.get("file")).or(obj.get("0"))
-                    .and_then(|v| v.as_str()).unwrap_or("");
-                let content = obj.get("content").or(obj.get("text")).or(obj.get("1"))
-                    .map(|v| v.to_string()).unwrap_or_default();
-                vec![path.to_string(), content]
-            } else if name == "read" {
-                if let Some(path) = obj.get("path").or(obj.get("file")).or(obj.get("0"))
-                    .and_then(|v| v.as_str()) {
-                    vec![path.to_string()]
-                } else {
-                    vec![]
-                }
-            } else {
-                vec![]
-            }
-        } else if let Some(s) = args.as_str() {
-            // If it's a string, check if it's a write command
-            let s = s.to_string();
-            if name == "write" {
-                // Try to parse as JSON
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&s) {
-                    let path = parsed.get("path").or(parsed.get("file"))
-                        .and_then(|v| v.as_str()).unwrap_or("");
-                    let content = parsed.get("content").or(parsed.get("text"))
-                        .map(|v| v.to_string()).unwrap_or_default();
-                    vec![path.to_string(), content]
-                } else {
-                    // Treat as "command" argument
-                    vec![s]
-                }
-            } else {
-                vec![s]
-            }
-        } else {
-            vec![]
-        };
+        let args_vec = self.parse_tool_args(name, args);
 
         execute_tool(name, &args_vec, self.bypass_permissions)
     }
 
+    fn parse_tool_args(&self, tool_name: &str, args: &Value) -> Vec<String> {
+        match args {
+            Value::String(s) => vec![s.clone()],
+            Value::Array(arr) => arr.iter().filter_map(|v| v.as_str().map(String::from)).collect(),
+            Value::Object(obj) => {
+                match tool_name {
+                    "bash" | "run" | "execute" => {
+                        obj.get("command")
+                            .or(obj.get("cmd"))
+                            .or(obj.get("0"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| vec![s.to_string()])
+                            .unwrap_or_default()
+                    }
+                    "write" => {
+                        let path = obj.get("path").or(obj.get("file")).or(obj.get("0"))
+                            .and_then(|v| v.as_str()).unwrap_or("");
+                        let content = obj.get("content").or(obj.get("text")).or(obj.get("1"))
+                            .map(|v| v.to_string()).unwrap_or_default();
+                        vec![path.to_string(), content]
+                    }
+                    "read" | "glob" | "grep" => {
+                        obj.get("path").or(obj.get("file")).or(obj.get("pattern")).or(obj.get("0"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| vec![s.to_string()])
+                            .unwrap_or_default()
+                    }
+                    "edit" => {
+                        let path = obj.get("path").or(obj.get("file")).or(obj.get("0"))
+                            .and_then(|v| v.as_str()).unwrap_or("");
+                        let old_text = obj.get("old_text").or(obj.get("old")).or(obj.get("1"))
+                            .and_then(|v| v.as_str()).unwrap_or("");
+                        let new_text = obj.get("new_text").or(obj.get("new")).or(obj.get("2"))
+                            .map(|v| v.to_string()).unwrap_or_default();
+                        vec![path.to_string(), old_text.to_string(), new_text]
+                    }
+                    _ => vec![]
+                }
+            }
+            _ => vec![]
+        }
+    }
+
+    fn get_tool_summary(&self, call: &Value) -> String {
+        let name = call["name"].as_str().unwrap_or("unknown");
+        let args = &call["arguments"];
+
+        match name {
+            "bash" => {
+                if let Some(cmd) = args.as_str() {
+                    let cmd = cmd.trim();
+                    if cmd.len() > 50 {
+                        format!("{}...", &cmd[..50])
+                    } else {
+                        cmd.to_string()
+                    }
+                } else if let Some(obj) = args.as_object() {
+                    obj.get("command").or(obj.get("cmd"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "running command".to_string())
+                } else {
+                    "running command".to_string()
+                }
+            }
+            "write" => {
+                if let Some(obj) = args.as_object() {
+                    obj.get("path").or(obj.get("file"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| format!("Writing {}", s))
+                        .unwrap_or_else(|| "Writing file".to_string())
+                } else {
+                    "Writing file".to_string()
+                }
+            }
+            "read" => {
+                if let Some(obj) = args.as_object() {
+                    obj.get("path").or(obj.get("file"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| format!("Reading {}", s))
+                        .unwrap_or_else(|| "Reading file".to_string())
+                } else if let Some(path) = args.as_str() {
+                    format!("Reading {}", path)
+                } else {
+                    "Reading file".to_string()
+                }
+            }
+            "edit" => {
+                if let Some(obj) = args.as_object() {
+                    obj.get("path").or(obj.get("file"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| format!("Editing {}", s))
+                        .unwrap_or_else(|| "Editing file".to_string())
+                } else {
+                    "Editing file".to_string()
+                }
+            }
+            "glob" => {
+                if let Some(pattern) = args.as_str() {
+                    format!("Finding {}", pattern)
+                } else {
+                    "Finding files".to_string()
+                }
+            }
+            "grep" => {
+                if let Some(pattern) = args.as_str() {
+                    format!("Searching for {}", pattern)
+                } else {
+                    "Searching".to_string()
+                }
+            }
+            _ => format!("Running {}", name),
+        }
+    }
+
+    fn get_tool_icon(&self, tool_name: &str) -> &'static str {
+        match tool_name {
+            "bash" | "run" | "execute" => "⚡",
+            "write" => "📝",
+            "read" => "📖",
+            "edit" => "✏️",
+            "glob" => "🔍",
+            "grep" => "🔎",
+            "webfetch" | "web_fetch" => "🌐",
+            "websearch" | "web_search" => "🌐",
+            _ => "🔧",
+        }
+    }
+
+    fn get_checkmark(&self) -> &'static str {
+        "✅"
+    }
+
+    fn get_x_mark(&self) -> &'static str {
+        "❌"
+    }
+
+    fn show_thinking(&self) {
+        print!("  ⠿ thinking...");
+        std::io::Write::flush(&mut std::io::stdout()).ok();
+    }
+
+    fn hide_thinking(&self) {
+        print!("\r{:width$}\r", "", width = 20);
+    }
+
+    fn show_progress(&self, msg: &str) {
+        println!("  {}", msg);
+    }
+
+    fn print_response(&self, content: &str) {
+        // Print response, stripping any tool call artifacts
+        let cleaned = self.clean_response(content);
+        if !cleaned.trim().is_empty() {
+            println!();
+            println!("{}", cleaned);
+        }
+    }
+
+    fn clean_response(&self, content: &str) -> String {
+        // Remove tool call artifacts from response
+        let mut lines: Vec<&str> = Vec::new();
+        let mut in_code_block = false;
+        let mut in_tool_call = false;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+
+            // Skip lines that are just tool call artifacts
+            if trimmed.starts_with("bash(") || trimmed.starts_with("write(") ||
+               trimmed.starts_with("read(") || trimmed.starts_with("edit(") ||
+               trimmed.starts_with("run(") || trimmed.starts_with("execute(") {
+                in_tool_call = true;
+                continue;
+            }
+
+            if trimmed == "```" && in_code_block {
+                in_code_block = false;
+                continue;
+            }
+
+            if trimmed.starts_with("```bash") || trimmed.starts_with("```sh") ||
+               trimmed.starts_with("```") {
+                in_code_block = true;
+                // Check if this code block contains a single tool call
+                continue;
+            }
+
+            if !in_tool_call && !in_code_block {
+                lines.push(line);
+            }
+
+            if in_tool_call && trimmed.is_empty() {
+                in_tool_call = false;
+            }
+        }
+
+        lines.join("\n")
+    }
+
     fn format_tool_calls_for_api(&self, calls: &[Value], results: &[ToolResult]) -> String {
-        let mut output = String::from("Tool Results:\n\n");
+        let mut output = String::from("\n\n[Tool Results]\n");
 
         for (call, result) in calls.iter().zip(results.iter()) {
             let name = call["name"].as_str().unwrap_or("unknown");
-            output.push_str(&format!("Tool: {}\n", name));
-            output.push_str(&format!("Result: {}\n\n", result.to_content()));
+            output.push_str(&format!("- {}: ", name));
+
+            if result.success {
+                let content = &result.output;
+                if content.len() > 500 {
+                    output.push_str(&format!("{}\n... ({} chars total)\n", &content[..500], content.len()));
+                } else {
+                    output.push_str(&format!("{}\n", content));
+                }
+            } else {
+                output.push_str(&format!("Error: {}\n", result.error.as_deref().unwrap_or("Unknown")));
+            }
+            output.push('\n');
         }
 
+        output.push_str("Continue with the task.\n");
         output
     }
 }
