@@ -78,12 +78,26 @@ fn set_config(key: &str, value: &str, state: &mut AppState) -> Result<i32> {
             println!("Set llm_provider to: {}", value);
         }
         "model" => {
-            state.config.model = Some(value.to_string());
-            println!("Set model to: {}", value);
+            if value.is_empty() {
+                state.config.model = None;
+                println!("Cleared model (will use provider default)");
+            } else {
+                state.config.model = Some(value.to_string());
+                println!("Set model to: {}", value);
+            }
         }
         "base_url" => {
-            state.config.base_url = Some(value.to_string());
-            println!("Set base_url to: {}", value);
+            if value.is_empty() {
+                state.config.base_url = None;
+                println!("Cleared base_url (will use provider default)");
+            } else {
+                state.config.base_url = Some(value.to_string());
+                println!("Set base_url to: {}", value);
+            }
+        }
+        "api_key" => {
+            state.config.api_key = Some(value.to_string());
+            println!("Set api_key to: {}...", &value[..8.min(value.len())]);
         }
         _ => {
             eprintln!("Cannot set config key: {}. Use code-buddy config edit for full config.", key);
