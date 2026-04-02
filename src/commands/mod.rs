@@ -9,6 +9,7 @@ pub mod clear;
 pub mod compact;
 pub mod config;
 pub mod commit;
+pub mod cron_cmd;
 pub mod desktop;
 pub mod doctor;
 pub mod exit;
@@ -52,6 +53,7 @@ pub mod version;
 pub mod voice;
 
 pub use clear::run as clear_run;
+pub use cron_cmd::run as cron_run;
 pub use compact::run as compact_run;
 pub use commit::run as commit_run;
 pub use config::run as config_run;

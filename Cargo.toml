@@ -77,6 +77,15 @@ crossterm = "0.27"
 terminal_size = "0.3"
 whoami = "1.5"
 
+# Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Archives
+zip = "2.1"
+
+# Encoding
+base64 = "0.22"
+
 [profile.release]
 opt-level = 3
 lto = true
@@ -89,3 +98,7 @@ opt-level = 0
 [[bin]]
 name = "code-buddy"
 path = "src/main.rs"
+
+[lib]
+name = "code_buddy"
+path = "src/lib.rs"

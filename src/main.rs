@@ -17,6 +17,9 @@ pub mod computer;
 pub mod agents;
 pub mod skills;
 
+// Re-export library modules for commands
+pub use code_buddy::cron;
+
 use anyhow::Result;
 use clap::Parser;
 use std::process;
