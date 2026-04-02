@@ -5,15 +5,50 @@
 #   irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 | iex
 #   irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 | iex -ProviderName nvidia -ApiKey YOUR_KEY
 #
+# Supported Providers:
+#   nvidia, openrouter, ollama, anthropic, openai, groq, deepseek, mistral, etc.
+#
+# Note: MLX is not available on Windows (requires Apple Silicon)
+#
 
 param(
     [string]$Provider = "",
     [string]$ApiKey = "",
-    [string]$Model = ""
+    [string]$Model = "",
+    [switch]$Help
 )
 
+if ($Help) {
+    Write-Host ""
+    Write-Host "Code Buddy Installer for Windows"
+    Write-Host ""
+    Write-Host "Usage:"
+    Write-Host "  irm .../install.ps1 | iex"
+    Write-Host "  irm .../install.ps1 | iex -ProviderName nvidia -ApiKey YOUR_KEY"
+    Write-Host ""
+    Write-Host "Parameters:"
+    Write-Host "  -ProviderName   LLM provider (nvidia, openrouter, ollama, anthropic, etc.)"
+    Write-Host "  -ApiKey         API key for the provider"
+    Write-Host "  -Model          Model name (optional)"
+    Write-Host "  -Help           Show this help"
+    Write-Host ""
+    Write-Host "Examples:"
+    Write-Host "  # Interactive setup"
+    Write-Host "  irm .../install.ps1 | iex"
+    Write-Host ""
+    Write-Host "  # NVIDIA NIM (FREE tier)"
+    Write-Host "  irm .../install.ps1 | iex -ProviderName nvidia -ApiKey YOUR_KEY"
+    Write-Host ""
+    Write-Host "  # OpenRouter (free models)"
+    Write-Host "  irm .../install.ps1 | iex -ProviderName openrouter -ApiKey YOUR_KEY"
+    Write-Host ""
+    Write-Host "Note: MLX is not available on Windows (requires Apple Silicon)"
+    Write-Host ""
+    exit 0
+}
+
 $ErrorActionPreference = "Stop"
-$Version = "2.1.88"
+$Version = "2.1.89"
 $Repo = "simpletoolsindia/code-buddy"
 $InstallDir = "$env:LOCALAPPDATA\Programs\code-buddy"
 $BinaryName = "code-buddy.exe"
@@ -104,6 +139,9 @@ if ($Provider -or $ApiKey) {
         agents = @{}
         project_choices = @{}
         session_history = @()
+        auto_compact = $true
+        compact_threshold = 85
+        compact_messages = 20
     } | ConvertTo-Json -Depth 10
 
     Set-Content -Path "$configDir\config.json" -Value $config
@@ -121,6 +159,10 @@ Write-Host "Quick Start:"
 Write-Host "  1. Restart your terminal (to refresh PATH)"
 Write-Host "  2. Run: code-buddy setup"
 Write-Host "  3. Or: code-buddy -p `"Hello, world!`""
+Write-Host ""
+Write-Host "Supported Providers:"
+Write-Host "  nvidia, openrouter, ollama, anthropic, openai, groq, deepseek..."
+Write-Host "  (MLX requires Apple Silicon - not available on Windows)"
 Write-Host ""
 Write-Host "Need help? Visit: https://github.com/$Repo"
 Write-Host ""
