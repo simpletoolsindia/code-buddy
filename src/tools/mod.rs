@@ -1,6 +1,7 @@
 //! Tool implementations
 
 pub mod bash;
+pub mod executor;
 pub mod file;
 pub mod grep;
 pub mod glob;

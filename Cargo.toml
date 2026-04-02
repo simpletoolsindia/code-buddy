@@ -67,6 +67,7 @@ futures-util = "0.3"
 # Pattern matching
 glob = "0.3"
 urlencoding = "2.1"
+regex = "1.10"
 
 # UI/Terminal
 crossterm = "0.27"

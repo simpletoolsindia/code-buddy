@@ -1,5 +1,6 @@
 //! Print command - Run a prompt and print the response
 
+use crate::commands::agent::Agent;
 use crate::api::ApiClient;
 use crate::cli::OutputFormat;
 use crate::state::AppState;
@@ -37,8 +38,11 @@ pub async fn run(
     }
 }
 
-async fn run_text_mode(api_client: &ApiClient, prompt: &str, state: &mut AppState) -> Result<i32> {
-    // Create spinner for loading indicator
+async fn run_text_mode(_api_client: &ApiClient, prompt: &str, state: &mut AppState) -> Result<i32> {
+    // Use Agent for tool execution
+    let mut agent = Agent::new(state)?;
+
+    // Show spinner while working
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
         ProgressStyle::default_spinner()
@@ -46,38 +50,27 @@ async fn run_text_mode(api_client: &ApiClient, prompt: &str, state: &mut AppStat
             .template("{spinner:.cyan} {msg}")
             .unwrap()
     );
-    spinner.set_message("Thinking...");
+    spinner.set_message("Working...");
     spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
-    let response = api_client.complete(prompt, &state.config, state).await?;
+    let response = agent.run(prompt).await?;
 
     spinner.finish_with_message("Done!");
 
-    println!("\n{}", response.content);
+    println!("{}", response.content);
     println!("\n[Usage: {} tokens]", response.usage.total_tokens);
 
-    // Update session
-    state.add_message("user", prompt);
-    state.add_message("assistant", &response.content);
+    // Update state with any changes
+    *state = agent.state;
 
     Ok(0)
 }
 
-async fn run_json_mode(api_client: &ApiClient, prompt: &str, state: &mut AppState) -> Result<i32> {
-    // Create spinner for loading indicator
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template("{spinner:.cyan} {msg}")
-            .unwrap()
-    );
-    spinner.set_message("Thinking...");
-    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+async fn run_json_mode(_api_client: &ApiClient, prompt: &str, state: &mut AppState) -> Result<i32> {
+    // Use Agent for tool execution
+    let mut agent = Agent::new(state)?;
 
-    let response = api_client.complete(prompt, &state.config, state).await?;
-
-    spinner.finish_with_message("Done!");
+    let response = agent.run(prompt).await?;
 
     let json = serde_json::json!({
         "content": response.content,
@@ -87,8 +80,8 @@ async fn run_json_mode(api_client: &ApiClient, prompt: &str, state: &mut AppStat
 
     println!("{}", serde_json::to_string_pretty(&json)?);
 
-    state.add_message("user", prompt);
-    state.add_message("assistant", &response.content);
+    // Update state with any changes
+    *state = agent.state;
 
     Ok(0)
 }
