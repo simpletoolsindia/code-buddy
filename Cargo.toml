@@ -1,0 +1,87 @@
+[package]
+name = "code-buddy"
+version = "2.1.88"
+edition = "2021"
+authors = ["Code Buddy Team"]
+description = "Code Buddy - AI coding assistant with multi-provider LLM support"
+license = "MIT"
+homepage = "https://github.com/simpletoolsindia/code-buddy"
+repository = "https://github.com/simpletoolsindia/code-buddy"
+keywords = ["ai", "coding", "assistant", "llm", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+# CLI Framework
+clap = { version = "4.5", features = ["derive", "wrap_help", "env"] }
+clap_complete = "4.5"
+anyhow = "1.0"
+thiserror = "1.0"
+colored = "2.0"
+dialoguer = "0.11"
+indicatif = "0.17"
+
+# Async Runtime
+tokio = { version = "1.36", features = ["full"] }
+async-trait = "0.1"
+
+# HTTP & API
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "multipart", "stream"] }
+http = "1.1"
+url = "2.5"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# File System
+walkdir = "2.5"
+notify = "6.1"
+
+# Configuration
+dirs = "5.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+
+# Error Handling
+miette = { version = "7.2", features = ["fancy"] }
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.7", features = ["v4", "serde"] }
+nanoid = "0.4"
+os_info = "3.1"
+sysinfo = "0.30"
+tempfile = "3.10"
+
+# Networking
+tokio-native-tls = "0.3"
+rustls = "0.22"
+tokio-stream = "0.1"
+bytes = "1.0"
+futures-core = "0.3"
+futures-util = "0.3"
+
+# Pattern matching
+glob = "0.3"
+urlencoding = "2.1"
+
+# UI/Terminal
+crossterm = "0.27"
+terminal_size = "0.3"
+whoami = "1.5"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+
+[[bin]]
+name = "code-buddy"
+path = "src/main.rs"
