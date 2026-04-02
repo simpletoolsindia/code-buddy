@@ -142,6 +142,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub allow_dangerously_skip_permissions: bool,
 
+    /// Update to the latest version
+    #[arg(long, global = true, hide = true)]
+    pub self_update: bool,
+
     /// Agent to use
     #[arg(long, value_name = "AGENT", global = true)]
     pub agent: Option<String>,
@@ -223,8 +227,12 @@ pub enum CommandEnum {
         target: Option<String>,
     },
 
-    /// Update CLI
-    Update,
+    /// Update CLI to latest version
+    Update {
+        /// Actually perform the update (default: just check)
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
 
     /// Configuration management
     #[command(subcommand)]

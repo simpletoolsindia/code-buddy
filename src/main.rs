@@ -37,6 +37,17 @@ async fn main() {
     // Parse CLI arguments
     let cli = Cli::parse();
 
+    // Handle --self-update flag (update the binary itself)
+    if cli.self_update {
+        match commands::update::perform_update().await {
+            Ok(code) => process::exit(code),
+            Err(e) => {
+                eprintln!("Update failed: {}", e);
+                process::exit(1);
+            }
+        }
+    }
+
     // Load configuration
     let config = match Config::load() {
         Ok(config) => config,
@@ -51,15 +62,40 @@ async fn main() {
     // Initialize application state
     let mut state = AppState::new(config);
 
-    // Execute command
-    let result = run_command(cli, &mut state).await;
+    // Check for updates on startup (only in interactive mode)
+    let check_update = matches!(cli.command, None | Some(cli::CommandEnum::Interactive));
+    if check_update && !cli.print {
+        // Spawn background update check
+        let handle = tokio::spawn(async {
+            match commands::update::check_update_silent().await {
+                Ok(Some(latest)) => {
+                    println!();
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!("  ⚠️  Update available: {} → {}", env!("CARGO_PKG_VERSION"), latest);
+                    println!("  Run 'code-buddy --self-update' to update");
+                    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    println!();
+                }
+                _ => {}
+            }
+        });
 
-    match result {
-        Ok(exit_code) => process::exit(exit_code),
-        Err(e) => {
-            error!("Command failed: {}", e);
-            eprintln!("Error: {}", e);
-            process::exit(1);
+        // Execute command
+        let result = run_command(cli, &mut state).await;
+
+        // Wait for update check to complete
+        let _ = handle.await;
+    } else {
+        // Execute command
+        let result = run_command(cli, &mut state).await;
+
+        match result {
+            Ok(exit_code) => process::exit(exit_code),
+            Err(e) => {
+                error!("Command failed: {}", e);
+                eprintln!("Error: {}", e);
+                process::exit(1);
+            }
         }
     }
 }
@@ -132,8 +168,12 @@ async fn run_command(cli: Cli, mut state: &mut AppState) -> Result<i32> {
             commands::install::run(target, &mut state).await
         }
 
-        Some(CommandEnum::Update) => {
-            commands::update::run(&mut state).await
+        Some(CommandEnum::Update { yes }) => {
+            if yes {
+                commands::update::perform_update().await
+            } else {
+                commands::update::run(&mut state).await
+            }
         }
 
         Some(CommandEnum::Config(subcommand)) => {

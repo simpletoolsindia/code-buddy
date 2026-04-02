@@ -21,6 +21,7 @@ const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/context", "Show context usage"),
     ("/system", "Show system prompt"),
     ("/set", "Set configuration option"),
+    ("/update", "Check for or install updates"),
 ];
 
 pub async fn run(state: &mut AppState) -> Result<i32> {
@@ -193,6 +194,16 @@ async fn handle_slash_command(input: &str, state: &mut AppState) -> Result<i32> 
             } else {
                 println!("Usage: /set <key> <value>\n");
             }
+        }
+        "/update" => {
+            println!();
+            match crate::commands::update::check_and_update(true).await {
+                Ok(1) => {
+                    println!("Run 'code-buddy update --yes' to update now, or restart to see this message again.");
+                }
+                _ => {}
+            }
+            println!();
         }
         _ => {
             println!("Unknown command: {}\n", cmd);
