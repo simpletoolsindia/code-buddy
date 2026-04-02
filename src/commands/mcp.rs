@@ -4,12 +4,15 @@ use crate::cli::mcp::McpCommand;
 use crate::state::AppState;
 use anyhow::{Context, Result};
 use std::fs;
-use std::io::{self, Write};
 
 pub async fn run(subcommand: Option<McpCommand>, state: &mut AppState) -> Result<i32> {
     match subcommand {
-        Some(McpCommand::Add { name, command_or_url, args }) => {
-            add_server(&name, &command_or_url, &args, state).await
+        Some(McpCommand::Add { name, command }) => {
+            // Parse command into command and args
+            let parts: Vec<&str> = command.split_whitespace().collect();
+            let cmd = parts.first().unwrap_or(&"");
+            let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+            add_server(&name, cmd, &args, state).await
         }
         Some(McpCommand::AddJson { name, json }) => {
             add_server_json(&name, &json, state).await

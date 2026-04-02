@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -48,10 +48,98 @@ pub struct Config {
     /// Session history
     #[serde(default)]
     pub session_history: Vec<Message>,
+
+    /// Allowed directories for file operations
+    #[serde(default)]
+    pub allowed_directories: Vec<PathBuf>,
+
+    /// Max tokens for API requests
+    pub max_tokens: Option<u32>,
+
+    /// Temperature for API requests
+    pub temperature: Option<f32>,
+
+    /// Custom system prompt
+    pub system_prompt: Option<String>,
+
+    /// Conversation window size
+    pub conversation_window: Option<usize>,
+
+    /// Auto-compact enabled (auto-summarize long conversations)
+    #[serde(default)]
+    pub auto_compact: bool,
+
+    /// Compact threshold as percentage of context window (default: 85)
+    #[serde(default = "default_compact_threshold")]
+    pub compact_threshold: u8,
+
+    /// Maximum messages to keep after compaction
+    #[serde(default = "default_compact_messages")]
+    pub compact_messages: usize,
+
+    /// Debug mode
+    #[serde(default)]
+    pub debug: bool,
+
+    /// Verbose output
+    #[serde(default)]
+    pub verbose: bool,
+
+    /// Streaming mode
+    #[serde(default = "default_true")]
+    pub streaming: bool,
+
+    /// Disable color output
+    #[serde(default)]
+    pub no_color: bool,
+
+    /// JSON output mode
+    #[serde(default)]
+    pub json: bool,
+
+    /// Skip SSL verification
+    #[serde(default)]
+    pub insecure_ssl: bool,
+
+    /// Request timeout in seconds
+    #[serde(default = "default_timeout")]
+    pub request_timeout_seconds: u64,
+
+    /// Max retries for API requests
+    #[serde(default = "default_retries")]
+    pub max_retries: u32,
 }
 
 fn default_provider() -> String {
     "anthropic".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_timeout() -> u64 {
+    120
+}
+
+fn default_retries() -> u32 {
+    3
+}
+
+fn default_compact_threshold() -> u8 {
+    85
+}
+
+fn default_compact_messages() -> usize {
+    20
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactionResult {
+    pub original_messages: usize,
+    pub compacted_messages: usize,
+    pub summary: String,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,11 +179,135 @@ impl Default for Config {
             project_choices: HashMap::new(),
             config_path: None,
             session_history: Vec::new(),
+            allowed_directories: Vec::new(),
+            max_tokens: std::env::var("MAX_TOKENS").ok().and_then(|s| s.parse().ok()),
+            temperature: std::env::var("TEMPERATURE").ok().and_then(|s| s.parse().ok()),
+            system_prompt: std::env::var("SYSTEM_PROMPT").ok(),
+            conversation_window: std::env::var("CONVERSATION_WINDOW").ok().and_then(|s| s.parse().ok()),
+            auto_compact: std::env::var("AUTO_COMPACT")
+                .map(|s| s == "true" || s == "1")
+                .unwrap_or(true),
+            compact_threshold: std::env::var("COMPACT_THRESHOLD")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(85),
+            compact_messages: std::env::var("COMPACT_MESSAGES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(20),
+            debug: std::env::var("DEBUG").map(|s| s == "true" || s == "1").unwrap_or(false),
+            verbose: false,
+            streaming: true,
+            no_color: std::env::var("NO_COLOR").map(|s| s == "true" || s == "1").unwrap_or(false),
+            json: false,
+            insecure_ssl: false,
+            request_timeout_seconds: std::env::var("REQUEST_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(120),
+            max_retries: std::env::var("MAX_RETRIES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(3),
         }
     }
 }
 
 impl Config {
+    /// Create configuration from environment variables
+    pub fn from_env() -> Self {
+        // Check for explicit API keys in priority order
+        let api_key = if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+            Some(key)
+        } else if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+            Some(key)
+        } else if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
+            Some(key)
+        } else if let Ok(key) = std::env::var("NVIDIA_API_KEY") {
+            Some(key)
+        } else if let Ok(key) = std::env::var("GROQ_API_KEY") {
+            Some(key)
+        } else if let Ok(key) = std::env::var("DEEPSEEK_API_KEY") {
+            Some(key)
+        } else if let Ok(key) = std::env::var("TOGETHER_API_KEY") {
+            Some(key)
+        } else {
+            None
+        };
+
+        // Determine provider from explicit key or LLM_PROVIDER env var
+        let llm_provider = if api_key.is_some() {
+            if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                "anthropic".to_string()
+            } else if std::env::var("OPENAI_API_KEY").is_ok() {
+                "openai".to_string()
+            } else if std::env::var("OPENROUTER_API_KEY").is_ok() {
+                "openrouter".to_string()
+            } else if std::env::var("NVIDIA_API_KEY").is_ok() {
+                "nvidia".to_string()
+            } else if std::env::var("GROQ_API_KEY").is_ok() {
+                "groq".to_string()
+            } else if std::env::var("DEEPSEEK_API_KEY").is_ok() {
+                "deepseek".to_string()
+            } else if std::env::var("TOGETHER_API_KEY").is_ok() {
+                "together".to_string()
+            } else {
+                std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string())
+            }
+        } else {
+            std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".to_string())
+        };
+
+        Self {
+            api_key,
+            llm_provider,
+            model: std::env::var("ANTHROPIC_MODEL").ok(),
+            base_url: std::env::var("ANTHROPIC_BASE_URL").ok(),
+            permission_mode: std::env::var("PERMISSION_MODE").ok(),
+            additional_dirs: Vec::new(),
+            mcp_servers: HashMap::new(),
+            agents: HashMap::new(),
+            project_choices: HashMap::new(),
+            config_path: None,
+            session_history: Vec::new(),
+            allowed_directories: Vec::new(),
+            max_tokens: std::env::var("MAX_TOKENS").ok().and_then(|s| s.parse().ok()),
+            temperature: std::env::var("TEMPERATURE").ok().and_then(|s| s.parse().ok()),
+            system_prompt: std::env::var("SYSTEM_PROMPT").ok(),
+            conversation_window: std::env::var("CONVERSATION_WINDOW").ok().and_then(|s| s.parse().ok()),
+            auto_compact: std::env::var("AUTO_COMPACT")
+                .map(|s| s == "true" || s == "1")
+                .unwrap_or(true),
+            compact_threshold: std::env::var("COMPACT_THRESHOLD")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(85),
+            compact_messages: std::env::var("COMPACT_MESSAGES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(20),
+            debug: std::env::var("DEBUG").map(|s| s == "true" || s == "1").unwrap_or(false),
+            verbose: std::env::var("VERBOSE").map(|s| s == "true" || s == "1").unwrap_or(false),
+            streaming: true,
+            no_color: std::env::var("NO_COLOR").map(|s| s == "true" || s == "1").unwrap_or(false),
+            json: false,
+            insecure_ssl: false,
+            request_timeout_seconds: std::env::var("REQUEST_TIMEOUT_SECONDS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(120),
+            max_retries: std::env::var("MAX_RETRIES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(3),
+        }
+    }
+
+    /// Add an allowed directory
+    pub fn add_allowed_dir(&mut self, dir: impl Into<PathBuf>) {
+        self.allowed_directories.push(dir.into());
+    }
+
     /// Load configuration from file
     pub fn load() -> Result<Self> {
         let config_path = Self::find_config_file()?;
@@ -191,3 +403,7 @@ impl Config {
         Ok(dir)
     }
 }
+
+#[cfg(test)]
+mod tests;
+

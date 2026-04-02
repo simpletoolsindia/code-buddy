@@ -162,8 +162,31 @@ async fn handle_slash_command(input: &str, state: &mut AppState) -> Result<i32> 
         "/context" => {
             println!("=== Context Usage ===\n");
             let total = state.conversation_history.len();
+            let tokens = state.estimate_context_tokens();
+            let usage = state.context_usage_percent();
+            let window = state.config.conversation_window.unwrap_or(200_000);
             println!("Messages in context: {}", total);
-            println!("Provider: {}", state.config.llm_provider);
+            println!("Estimated tokens: ~{}", tokens);
+            println!("Context window: {} tokens", window);
+            println!("Usage: {}%", usage);
+            println!("Auto-compact: {}", if state.config.auto_compact { "ON" } else { "OFF" });
+            println!("Compact threshold: {}%", state.config.compact_threshold);
+            println!();
+        }
+        "/compact" => {
+            println!("=== Compacting Context ===\n");
+            let tokens_before = state.estimate_context_tokens();
+            let messages_before = state.conversation_history.len();
+            let result = state.compact();
+            let tokens_after = state.estimate_context_tokens();
+
+            println!("✓ Context compacted successfully!");
+            println!("  Messages: {} → {}", messages_before, result.compacted_messages);
+            println!("  Tokens: ~{} → ~{} ({:.1}% reduction)",
+                tokens_before, tokens_after,
+                if tokens_before > 0 {
+                    (100.0 * (tokens_before - tokens_after) as f64 / tokens_before as f64)
+                } else { 0.0 });
             println!();
         }
         "/system" => {
@@ -197,11 +220,8 @@ async fn handle_slash_command(input: &str, state: &mut AppState) -> Result<i32> 
         }
         "/update" => {
             println!();
-            match crate::commands::update::check_and_update(true).await {
-                Ok(1) => {
-                    println!("Run 'code-buddy update --yes' to update now, or restart to see this message again.");
-                }
-                _ => {}
+            if let Ok(1) = crate::commands::update::check_and_update(true).await {
+                println!("Run 'code-buddy update --yes' to update now, or restart to see this message again.");
             }
             println!();
         }
@@ -215,7 +235,7 @@ async fn handle_slash_command(input: &str, state: &mut AppState) -> Result<i32> 
 }
 
 async fn handle_prompt(prompt: &str, state: &mut AppState) -> Result<()> {
-    print!("\n");
+    println!();
 
     let api_client = ApiClient::new(state)?;
     let response = api_client.complete(prompt, &state.config, state).await?;
@@ -226,6 +246,15 @@ async fn handle_prompt(prompt: &str, state: &mut AppState) -> Result<()> {
     // Update conversation history
     state.add_message("user", prompt);
     state.add_message("assistant", &response.content);
+
+    // Auto-compact if needed
+    if let Some(result) = state.auto_compact_if_needed() {
+        println!("\n⚡ Auto-compacted {} messages → {} messages",
+            result.original_messages, result.compacted_messages);
+        println!("   ({}% context usage reached threshold of {}%)",
+            state.context_usage_percent(), state.config.compact_threshold);
+        println!();
+    }
 
     Ok(())
 }

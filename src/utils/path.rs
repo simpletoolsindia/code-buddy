@@ -1,7 +1,6 @@
 //! Path utilities
 
 use std::path::{Path, PathBuf};
-use anyhow::Result;
 
 /// Normalize a path, resolving . and ..
 pub fn normalize_path(path: &Path) -> PathBuf {

@@ -1,5 +1,6 @@
 //! Status command - Show system and authentication status
 
+use crate::mlx::MlxConfig;
 use crate::state::AppState;
 use anyhow::Result;
 
@@ -16,7 +17,21 @@ pub async fn run(state: &mut AppState) -> Result<i32> {
 
     // Check LLM provider
     println!("\nLLM Provider: {}", state.config.llm_provider);
-    println!("Model: {}", state.config.model.as_deref().unwrap_or("claude-sonnet-4-5"));
+    println!("Model: {}", state.config.model.as_deref().unwrap_or("default"));
+
+    // Show MLX-specific info
+    if state.config.llm_provider == "mlx" {
+        let mlx_config = MlxConfig::new();
+        println!("\nMLX Info:");
+        println!("  mlx-lm installed: {}", if mlx_config.check_mlx_lm_installed() { "Yes" } else { "No" });
+        println!("  Model cache: {}", mlx_config.model_dir.display());
+        if !mlx_config.cached_models.is_empty() {
+            println!("  Cached models:");
+            for model in &mlx_config.cached_models {
+                println!("    - {}", model);
+            }
+        }
+    }
 
     // Check additional directories
     if !state.config.additional_dirs.is_empty() {
@@ -30,6 +45,12 @@ pub async fn run(state: &mut AppState) -> Result<i32> {
     println!("\n=== System Info ===");
     println!("OS: {}", os_info::get());
     println!("Version: {}", env!("CARGO_PKG_VERSION"));
+
+    // Show MLX availability
+    if MlxConfig::is_apple_silicon() {
+        println!("\nMLX (Apple Silicon): Available");
+        println!("  Run 'code-buddy --mlx' to set up MLX models");
+    }
 
     Ok(0)
 }

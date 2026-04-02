@@ -6,7 +6,8 @@ use crate::tools::executor::{execute_tool, get_tools_description, ToolResult};
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+use tracing::{info, instrument};
 
 const MAX_TOOL_CALLS: u32 = 10;
 
@@ -35,9 +36,12 @@ impl Agent {
     }
 
     /// Run a prompt with tool execution - Claude Code style
+    #[instrument(skip(self), fields(prompt_len = %prompt.len()))]
     pub async fn run(&mut self, prompt: &str) -> Result<CompletionResponse> {
         let start_time = Instant::now();
         let mut tool_calls_count = 0u32;
+
+        info!("Starting agent run with prompt ({} chars)", prompt.len());
 
         // Add the user's prompt to history
         self.state.add_message("user", prompt);
@@ -46,7 +50,7 @@ impl Agent {
         let system_prompt = self.build_system_prompt();
 
         // Show thinking indicator
-        print!("\n");
+        println!();
         self.show_thinking();
 
         // Make initial request
@@ -79,7 +83,7 @@ impl Agent {
             let mut results: Vec<ToolResult> = Vec::new();
             let mut result_summaries: Vec<String> = Vec::new();
 
-            for (i, call) in tool_calls.iter().enumerate() {
+            for call in tool_calls.iter() {
                 let tool_name = call["name"].as_str().unwrap_or("unknown");
                 let summary = self.get_tool_summary(call);
 
@@ -209,8 +213,8 @@ Guidelines:
                         let args = call.get("arguments").or(call.get("args")).unwrap_or(&serde_json::Value::Null);
                         let call_id = format!("{}-{:?}", name, args);
 
-                        if !seen_calls.contains_key(&call_id) {
-                            seen_calls.insert(call_id, true);
+                        if let std::collections::hash_map::Entry::Vacant(e) = seen_calls.entry(call_id) {
+                            e.insert(true);
                             calls.push(serde_json::json!({
                                 "name": name,
                                 "arguments": args
@@ -228,8 +232,8 @@ Guidelines:
             let args_str = serde_json::to_string(&call["arguments"]).unwrap_or_default();
             let call_id = format!("{}-{}", name, args_str);
 
-            if !seen_calls.contains_key(&call_id) {
-                seen_calls.insert(call_id, true);
+            if let std::collections::hash_map::Entry::Vacant(e) = seen_calls.entry(call_id) {
+                e.insert(true);
                 calls.push(call);
             }
         }
@@ -259,8 +263,8 @@ Guidelines:
                 // Check if it's a valid command (not path-like or documentation)
                 if !cmd.starts_with('/') && !cmd.contains("example") && cmd.len() < 2000 {
                     let key = format!("bash:{}", cmd);
-                    if !seen.contains_key(&key) {
-                        seen.insert(key, true);
+                    if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                        e.insert(true);
                         calls.push(serde_json::json!({
                             "name": "bash",
                             "arguments": cmd
@@ -285,8 +289,8 @@ Guidelines:
                 && !file_content.is_empty()
             {
                 let key = format!("write:{}:{}", path, &file_content[..file_content.len().min(50)]);
-                if !seen.contains_key(&key) {
-                    seen.insert(key, true);
+                if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                    e.insert(true);
                     calls.push(serde_json::json!({
                         "name": "write",
                         "arguments": {
@@ -312,8 +316,8 @@ Guidelines:
                 && cmd.len() < 2000
             {
                 let key = format!("bash:{}", cmd);
-                if !seen.contains_key(&key) {
-                    seen.insert(key, true);
+                if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                    e.insert(true);
                     calls.push(serde_json::json!({
                         "name": "bash",
                         "arguments": cmd
@@ -333,8 +337,8 @@ Guidelines:
                 && cmd.len() < 1000
             {
                 let key = format!("bash:{}", cmd);
-                if !seen.contains_key(&key) {
-                    seen.insert(key, true);
+                if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key) {
+                    e.insert(true);
                     calls.push(serde_json::json!({
                         "name": "bash",
                         "arguments": cmd

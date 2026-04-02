@@ -1,18 +1,22 @@
 //! Interactive setup command
 
+use crate::mlx::MlxConfig;
 use crate::state::AppState;
 use anyhow::Result;
 use dialoguer::{Input, Select};
 
-const PROVIDERS: &[&str] = &[
-    "ollama (Local, FREE - no API key needed)",
+const PROVIDERS_CLOUD: &[&str] = &[
     "nvidia (NVIDIA NIM - FREE tier available)",
     "openrouter (100+ models, free tier)",
     "anthropic (Claude models)",
     "openai (GPT models)",
     "groq (Fast inference)",
     "deepseek (Affordable)",
-    "other (Custom provider)",
+];
+
+const PROVIDERS_LOCAL: &[&str] = &[
+    "ollama (Local, FREE - no API key needed)",
+    "mlx (Apple Silicon, FREE - MLX optimized)",
 ];
 
 const OLLAMA_MODELS: &[&str] = &[
@@ -22,6 +26,15 @@ const OLLAMA_MODELS: &[&str] = &[
     "qwen2.5:0.5b",
     "qwen3-coder:30b",
     "codellama:7b",
+];
+
+const MLX_MODELS: &[(&str, &str)] = &[
+    ("mlx-community/llama-3.2-1b-instruct-4bit", "Llama 3.2 1B (4-bit, ~700MB)"),
+    ("mlx-community/llama-3.2-3b-instruct-4bit", "Llama 3.2 3B (4-bit, ~2GB)"),
+    ("mlx-community/Qwen2.5-1.5B-Instruct-4bit", "Qwen 2.5 1.5B (4-bit, ~1GB)"),
+    ("mlx-community/gemma-2b-it-4bit", "Gemma 2B (4-bit, ~1.8GB)"),
+    ("mlx-community/llama-3.1-8b-instruct-4bit", "Llama 3.1 8B (4-bit, ~5GB)"),
+    ("mlx-community/mistral-7b-instruct-v0.3-4bit", "Mistral 7B v0.3 (4-bit, ~4GB)"),
 ];
 
 const NVIDIA_MODELS: &[&str] = &[
@@ -70,24 +83,146 @@ pub async fn run(state: &mut AppState) -> Result<i32> {
     println!("\n=== Code Buddy Interactive Setup ===\n");
     println!("Let's configure your Code Buddy assistant.\n");
 
-    // Step 1: Select provider
+    // Check if on Apple Silicon
+    let is_apple_silicon = MlxConfig::is_apple_silicon();
+
+    // Step 1: Select provider category
     println!("Step 1: Choose your LLM Provider\n");
 
-    let provider_idx = Select::new()
-        .with_prompt("Select a provider (use arrow keys, Enter to select)")
-        .items(PROVIDERS)
-        .default(1) // nvidia as default
+    let all_providers = if is_apple_silicon {
+        vec![
+            "Cloud (API-based, requires API key)".to_string(),
+            "Local (Runs on your machine, FREE)".to_string(),
+            "Other (Custom provider)".to_string(),
+        ]
+    } else {
+        vec![
+            "Cloud (API-based, requires API key)".to_string(),
+            "Local (Runs on your machine, FREE)".to_string(),
+            "Other (Custom provider)".to_string(),
+        ]
+    };
+
+    let category_idx = Select::new()
+        .with_prompt("Select provider category (use arrow keys, Enter to select)")
+        .items(&all_providers)
+        .default(0)
         .interact()?;
 
-    let provider = match provider_idx {
-        0 => "ollama",
-        1 => "nvidia",
-        2 => "openrouter",
-        3 => "anthropic",
-        4 => "openai",
-        5 => "groq",
-        6 => "deepseek",
-        7 => {
+    let provider: &str;
+    let models: &[&str];
+
+    match category_idx {
+        0 => {
+            // Cloud providers
+            println!();
+            let provider_idx = Select::new()
+                .with_prompt("Select a cloud provider")
+                .items(PROVIDERS_CLOUD)
+                .default(0)
+                .interact()?;
+
+            provider = match provider_idx {
+                0 => "nvidia",
+                1 => "openrouter",
+                2 => "anthropic",
+                3 => "openai",
+                4 => "groq",
+                5 => "deepseek",
+                _ => "nvidia",
+            };
+
+            models = match provider {
+                "nvidia" => NVIDIA_MODELS,
+                "openrouter" => OPENROUTER_MODELS,
+                "anthropic" => ANTHROPIC_MODELS,
+                "openai" => OPENAI_MODELS,
+                "groq" => GROQ_MODELS,
+                "deepseek" => DEEPSEEK_MODELS,
+                _ => NVIDIA_MODELS,
+            };
+        }
+        1 => {
+            // Local providers
+            println!();
+            let local_providers: Vec<String> = if is_apple_silicon {
+                vec![
+                    "ollama (Linux/Windows/Intel Mac)".to_string(),
+                    "mlx (Apple Silicon M1/M2/M3/M4)".to_string(),
+                ]
+            } else {
+                vec!["ollama (Local models)".to_string()]
+            };
+
+            let local_idx = Select::new()
+                .with_prompt("Select a local provider")
+                .items(&local_providers)
+                .default(0)
+                .interact()?;
+
+            if is_apple_silicon && local_idx == 1 {
+                // MLX setup
+                println!("\n=== MLX (Apple Silicon) Setup ===\n");
+                println!("MLX provides optimized local inference on Apple Silicon Macs.");
+                println!("It downloads models from HuggingFace mlx-community.\n");
+
+                // Check if mlx-lm is installed
+                let mlx_config = MlxConfig::new();
+                if !mlx_config.check_mlx_lm_installed() {
+                    let install = dialoguer::Confirm::new()
+                        .with_prompt("mlx-lm is not installed. Install it now?")
+                        .default(true)
+                        .interact()?;
+
+                    if install {
+                        if let Err(e) = mlx_config.install_mlx_lm() {
+                            eprintln!("Warning: Failed to install mlx-lm: {}", e);
+                        }
+                    }
+                }
+
+                // Show available models
+                println!("\nAvailable MLX models:\n");
+                for (i, (_, desc)) in MLX_MODELS.iter().enumerate() {
+                    println!("{}. {}", i + 1, desc);
+                }
+
+                let model_idx = Select::new()
+                    .with_prompt("\nSelect a model to download")
+                    .max_length(6)
+                    .items(&MLX_MODELS.iter().map(|(_, d)| *d).collect::<Vec<_>>())
+                    .default(1)
+                    .interact()?;
+
+                let (model_id, _) = MLX_MODELS[model_idx];
+                println!("\nSelected model: {}", model_id);
+
+                // Download the model
+                let mlx_config = MlxConfig::new();
+                if let Err(e) = mlx_config.download_model(model_id).await {
+                    eprintln!("Warning: Failed to download model: {}", e);
+                } else {
+                    println!("✓ Model downloaded successfully!");
+                }
+
+                state.config.llm_provider = "mlx".to_string();
+                state.config.model = Some(model_id.to_string());
+                state.save_config()?;
+
+                println!("\n=== Setup Complete! ===\n");
+                println!("Provider: mlx (Apple Silicon)");
+                println!("Model: {}", model_id);
+                println!("\nTest your setup:");
+                println!("  code-buddy -p \"Hello, world!\"\n");
+
+                return Ok(0);
+            } else {
+                // Ollama
+                provider = "ollama";
+                models = OLLAMA_MODELS;
+            }
+        }
+        2 => {
             // Custom provider
             let custom: String = Input::new()
                 .with_prompt("Enter custom provider name (e.g., azure, vertex)")
@@ -98,25 +233,17 @@ pub async fn run(state: &mut AppState) -> Result<i32> {
             println!("\n✓ Setup complete!");
             return Ok(0);
         }
-        _ => "nvidia",
-    };
+        _ => {
+            provider = "nvidia";
+            models = NVIDIA_MODELS;
+        }
+    }
 
     state.config.llm_provider = provider.to_string();
     println!("Selected provider: {}\n", provider);
 
-    // Step 2: Select model based on provider
+    // Step 2: Select model
     println!("Step 2: Choose a Model\n");
-
-    let models = match provider {
-        "ollama" => OLLAMA_MODELS,
-        "nvidia" => NVIDIA_MODELS,
-        "openrouter" => OPENROUTER_MODELS,
-        "anthropic" => ANTHROPIC_MODELS,
-        "openai" => OPENAI_MODELS,
-        "groq" => GROQ_MODELS,
-        "deepseek" => DEEPSEEK_MODELS,
-        _ => OLLAMA_MODELS,
-    };
 
     let model_idx = Select::new()
         .with_prompt("Select a model (use arrow keys, Enter to select)")
@@ -125,7 +252,6 @@ pub async fn run(state: &mut AppState) -> Result<i32> {
         .interact()?;
 
     let selected_model = models[model_idx];
-    // Extract just the model name (before the description)
     let model_name = if selected_model.contains(" (") {
         selected_model.split(" (").next().unwrap_or(selected_model)
     } else {
@@ -136,7 +262,7 @@ pub async fn run(state: &mut AppState) -> Result<i32> {
     println!("Selected model: {}\n", model_name);
 
     // Step 3: API key if needed
-    let needs_api_key = !["ollama"].contains(&provider);
+    let needs_api_key = !["ollama", "mlx"].contains(&provider);
 
     if needs_api_key {
         println!("Step 3: API Key\n");
@@ -154,7 +280,7 @@ pub async fn run(state: &mut AppState) -> Result<i32> {
             println!("  code-buddy config set api_key YOUR_KEY");
         }
     } else {
-        println!("Step 3: API Key (Not needed for Ollama)\n");
+        println!("Step 3: API Key (Not needed for local models)\n");
         println!("✓ No API key needed for local models!");
     }
 

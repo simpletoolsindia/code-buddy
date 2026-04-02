@@ -1,7 +1,6 @@
 //! Glob tool - Find files by pattern
 
 use anyhow::{Context, Result};
-use std::path::Path;
 use walkdir::WalkDir;
 
 use super::Tool;

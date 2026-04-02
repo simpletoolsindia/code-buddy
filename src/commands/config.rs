@@ -3,7 +3,6 @@
 use crate::cli::config::ConfigCommand;
 use crate::state::AppState;
 use anyhow::Result;
-use std::io::{self, Write};
 
 pub async fn run(subcommand: Option<ConfigCommand>, state: &mut AppState) -> Result<i32> {
     match subcommand {

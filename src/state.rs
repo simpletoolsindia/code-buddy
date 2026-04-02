@@ -1,9 +1,16 @@
 //! Application state management
 
-use crate::config::Config;
+use crate::config::{CompactionResult, Config};
+use crate::plugins::PluginRegistry;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+// Default context window size (200k tokens for Claude)
+const DEFAULT_CONTEXT_WINDOW: usize = 200_000;
+
+// Estimated tokens per character (rough approximation)
+const TOKENS_PER_CHAR: usize = 4;
 
 #[derive(Debug, Clone)]
 pub struct AppState {
@@ -13,6 +20,7 @@ pub struct AppState {
     pub hooks: Vec<Hook>,
     pub tools: Vec<Tool>,
     pub context: ContextData,
+    pub plugin_registry: Option<PluginRegistry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +54,7 @@ pub struct ContextData {
 
 impl AppState {
     pub fn new(config: Config) -> Self {
+        let plugin_registry = PluginRegistry::load_plugins(&config).ok();
         Self {
             config,
             session_id: Some(uuid::Uuid::new_v4().to_string()),
@@ -53,6 +62,7 @@ impl AppState {
             hooks: Vec::new(),
             tools: Self::default_tools(),
             context: ContextData::default(),
+            plugin_registry,
         }
     }
 
@@ -136,5 +146,93 @@ impl AppState {
 
     pub fn remove_hook(&mut self, event: &str) {
         self.hooks.retain(|h| h.event != event);
+    }
+
+    /// Get estimated context size in tokens
+    pub fn estimate_context_tokens(&self) -> usize {
+        let total_chars: usize = self.conversation_history
+            .iter()
+            .map(|m| m.content.len())
+            .sum();
+        total_chars / TOKENS_PER_CHAR
+    }
+
+    /// Get context window usage percentage
+    pub fn context_usage_percent(&self) -> u8 {
+        let context_window = self.config.conversation_window.unwrap_or(DEFAULT_CONTEXT_WINDOW);
+        let usage = (self.estimate_context_tokens() * 100) / context_window;
+        usage as u8
+    }
+
+    /// Check if compaction is needed based on config thresholds
+    pub fn needs_compaction(&self) -> bool {
+        if !self.config.auto_compact {
+            return false;
+        }
+        self.context_usage_percent() >= self.config.compact_threshold
+    }
+
+    /// Manually compact conversation history
+    /// Returns a summary of what was compacted
+    pub fn compact(&mut self) -> CompactionResult {
+        let original_count = self.conversation_history.len();
+        let keep_messages = self.config.compact_messages;
+
+        if self.conversation_history.len() <= keep_messages {
+            return CompactionResult {
+                original_messages: original_count,
+                compacted_messages: self.conversation_history.len(),
+                summary: "No compaction needed - conversation already within limits".to_string(),
+                timestamp: chrono::Utc::now(),
+            };
+        }
+
+        // Get messages to keep (most recent ones)
+        let keep = self.conversation_history.len() - keep_messages;
+        let recent: Vec<_> = self.conversation_history.iter()
+            .skip(keep)
+            .map(|m| m.content.chars().take(100).collect::<String>() + "...")
+            .collect();
+
+        // Create summary of older messages
+        let summary = if keep > 0 {
+            format!(
+                "[Previous {} messages summarized: {}]",
+                keep,
+                recent.join(" | ")
+            )
+        } else {
+            "No previous messages to summarize".to_string()
+        };
+
+        // Keep only recent messages and add summary as a system message
+        let remaining: Vec<_> = self.conversation_history.iter()
+            .skip(keep)
+            .cloned()
+            .collect();
+        self.conversation_history = remaining;
+
+        // Add summary as a system message at the beginning
+        self.conversation_history.insert(0, ConversationMessage {
+            role: "system".to_string(),
+            content: summary.clone(),
+            timestamp: chrono::Utc::now(),
+        });
+
+        CompactionResult {
+            original_messages: original_count,
+            compacted_messages: self.conversation_history.len(),
+            summary,
+            timestamp: chrono::Utc::now(),
+        }
+    }
+
+    /// Auto-compact if needed, returns Some(result) if compaction was performed
+    pub fn auto_compact_if_needed(&mut self) -> Option<CompactionResult> {
+        if self.needs_compaction() {
+            Some(self.compact())
+        } else {
+            None
+        }
     }
 }

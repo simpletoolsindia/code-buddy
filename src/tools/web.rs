@@ -1,7 +1,6 @@
 //! Web tools - Search and fetch web content
 
 use anyhow::Result;
-use std::time::Duration;
 
 /// Web search tool
 pub struct WebSearch;

@@ -7,11 +7,8 @@ pub mod grep;
 pub mod glob;
 pub mod web;
 
-pub use bash::BashTool;
-pub use file::{FileRead, FileWrite, FileEdit};
-pub use grep::GrepTool;
-pub use glob::GlobTool;
-pub use web::{WebSearch, WebFetch};
+#[cfg(test)]
+mod tests;
 
 use anyhow::Result;
 

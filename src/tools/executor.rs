@@ -1,9 +1,9 @@
 //! Tool executor - Runs tools and returns results (Claude Code style)
 
-use anyhow::Result;
 use std::process::Command;
 use std::path::Path;
 use std::fs;
+use tracing::{debug, warn, instrument};
 
 #[derive(Debug, Clone)]
 pub struct ToolResult {
@@ -39,7 +39,9 @@ impl ToolResult {
 }
 
 /// Execute a tool by name with arguments
+#[instrument(skip(args), fields(tool = %name))]
 pub fn execute_tool(name: &str, args: &[String], _bypass_permissions: bool) -> ToolResult {
+    debug!("Executing tool: {} with args: {:?}", name, args);
     match name {
         "bash" | "run" | "execute" | "shell" => execute_bash(args),
         "read" | "cat" | "file_read" => execute_read(args),
@@ -57,12 +59,20 @@ pub fn execute_tool(name: &str, args: &[String], _bypass_permissions: bool) -> T
     }
 }
 
-fn execute_bash(args: &[String]) -> ToolResult {
+pub(crate) fn execute_bash(args: &[String]) -> ToolResult {
     if args.is_empty() {
         return ToolResult::error("bash: command argument required".to_string());
     }
 
     let command = args.join(" ");
+
+    // Basic security check - block dangerous patterns
+    let cmd_lower = command.to_lowercase();
+    if cmd_lower.contains("rm -rf /") || cmd_lower.contains("; rm -rf") || cmd_lower.contains("mkfs") {
+        warn!("Blocked dangerous command: {}", command);
+        return ToolResult::error("Blocked dangerous command pattern".to_string());
+    }
+
     let output = Command::new("sh")
         .arg("-c")
         .arg(&command)
@@ -100,7 +110,7 @@ fn execute_bash(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_read(args: &[String]) -> ToolResult {
+pub(crate) fn execute_read(args: &[String]) -> ToolResult {
     if args.is_empty() {
         return ToolResult::error("read: file path required".to_string());
     }
@@ -127,7 +137,7 @@ fn execute_read(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_write(args: &[String]) -> ToolResult {
+pub(crate) fn execute_write(args: &[String]) -> ToolResult {
     if args.len() < 2 {
         return ToolResult::error("write: requires <file_path> <content>".to_string());
     }
@@ -150,7 +160,7 @@ fn execute_write(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_edit(args: &[String]) -> ToolResult {
+pub(crate) fn execute_edit(args: &[String]) -> ToolResult {
     if args.len() < 3 {
         return ToolResult::error("edit: requires <file_path> <old_text> <new_text>".to_string());
     }
@@ -172,7 +182,7 @@ fn execute_edit(args: &[String]) -> ToolResult {
         return ToolResult::error(format!("Text not found in file: {}", old_text));
     }
 
-    let new_content = content.replace(old_text, &new_text);
+    let new_content = content.replace(old_text, new_text);
 
     match fs::write(path, &new_content) {
         Ok(_) => ToolResult::success(format!("Edited {}", args[0])),
@@ -180,7 +190,7 @@ fn execute_edit(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_glob(args: &[String]) -> ToolResult {
+pub(crate) fn execute_glob(args: &[String]) -> ToolResult {
     let pattern = args.first().map(|s| s.as_str()).unwrap_or("*");
 
     // Use find command for glob-like behavior
@@ -208,7 +218,7 @@ fn execute_glob(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_grep(args: &[String]) -> ToolResult {
+pub(crate) fn execute_grep(args: &[String]) -> ToolResult {
     if args.is_empty() {
         return ToolResult::error("grep: pattern required".to_string());
     }
@@ -246,7 +256,7 @@ fn execute_grep(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_webfetch(args: &[String]) -> ToolResult {
+pub(crate) fn execute_webfetch(args: &[String]) -> ToolResult {
     if args.is_empty() {
         return ToolResult::error("webfetch: URL required".to_string());
     }
@@ -272,7 +282,7 @@ fn execute_webfetch(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_websearch(args: &[String]) -> ToolResult {
+pub(crate) fn execute_websearch(args: &[String]) -> ToolResult {
     if args.is_empty() {
         return ToolResult::error("websearch: query required".to_string());
     }
@@ -320,7 +330,7 @@ fn execute_websearch(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_mkdir(args: &[String]) -> ToolResult {
+pub(crate) fn execute_mkdir(args: &[String]) -> ToolResult {
     if args.is_empty() {
         return ToolResult::error("mkdir: directory path required".to_string());
     }
@@ -333,7 +343,7 @@ fn execute_mkdir(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_rm(args: &[String]) -> ToolResult {
+pub(crate) fn execute_rm(args: &[String]) -> ToolResult {
     if args.is_empty() {
         return ToolResult::error("rm: file path required".to_string());
     }
@@ -355,7 +365,7 @@ fn execute_rm(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_cp(args: &[String]) -> ToolResult {
+pub(crate) fn execute_cp(args: &[String]) -> ToolResult {
     if args.len() < 2 {
         return ToolResult::error("cp: requires <source> <destination>".to_string());
     }
@@ -369,7 +379,7 @@ fn execute_cp(args: &[String]) -> ToolResult {
     }
 }
 
-fn execute_mv(args: &[String]) -> ToolResult {
+pub(crate) fn execute_mv(args: &[String]) -> ToolResult {
     if args.len() < 2 {
         return ToolResult::error("mv: requires <source> <destination>".to_string());
     }

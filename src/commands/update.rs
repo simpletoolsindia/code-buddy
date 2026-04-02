@@ -149,7 +149,7 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
 
 fn parse_version(version: &str) -> Vec<u32> {
     version
-        .split(|c: char| c == '-' || c == '+')
+        .split(['-', '+'])
         .next()
         .unwrap_or(version)
         .split('.')

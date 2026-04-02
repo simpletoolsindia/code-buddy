@@ -2,7 +2,7 @@
 
 use crate::cli::auth::AuthCommand;
 use crate::state::AppState;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::io::{self, Write};
 
 pub async fn run(subcommand: Option<AuthCommand>, state: &mut AppState) -> Result<i32> {

@@ -12,14 +12,14 @@
 //! - And more...
 
 use crate::config::Config;
-use crate::state::{AppState, ConversationMessage};
+use crate::state::AppState;
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tracing::{debug, instrument};
 
 #[derive(Debug, Clone)]
 pub struct ApiClient {
@@ -43,6 +43,7 @@ pub enum LlmProvider {
     Bedrock,
     Azure,
     Vertex,
+    Mlx, // Apple Silicon MLX
     Custom,
 }
 
@@ -168,6 +169,7 @@ impl ApiClient {
             "bedrock" | "aws" => LlmProvider::Bedrock,
             "azure" => LlmProvider::Azure,
             "vertex" | "google" => LlmProvider::Vertex,
+            "mlx" | "mlx-community" => LlmProvider::Mlx,
             _ => LlmProvider::Custom,
         };
 
@@ -197,12 +199,13 @@ impl ApiClient {
             LlmProvider::Azure => std::env::var("AZURE_OPENAI_ENDPOINT")
                 .unwrap_or_else(|_| "https://<resource>.openai.azure.com".to_string()),
             LlmProvider::Vertex => "https://{location}-aiplatform.googleapis.com/v1".to_string(),
+            LlmProvider::Mlx => "local".to_string(), // MLX runs locally
             LlmProvider::Custom => "https://api.anthropic.com".to_string(),
         }
     }
 
     fn get_model(&self, config: &Config) -> String {
-        let model = if let Some(model) = &config.model {
+        if let Some(model) = &config.model {
             if !model.is_empty() {
                 return model.clone();
             }
@@ -223,6 +226,7 @@ impl ApiClient {
             LlmProvider::Bedrock => "anthropic.claude-3-sonnet".to_string(),
             LlmProvider::Azure => "gpt-4o".to_string(),
             LlmProvider::Vertex => "claude-3-5-sonnet".to_string(),
+            LlmProvider::Mlx => "mlx-community/llama-3.2-3b-instruct-4bit".to_string(),
             LlmProvider::Custom => "claude-sonnet-4-5".to_string(),
         }
     }
@@ -260,9 +264,17 @@ impl ApiClient {
         headers
     }
 
+    #[instrument(skip(self, config, state), fields(provider = ?self.provider, model))]
     pub async fn complete(&self, prompt: &str, config: &Config, state: &AppState) -> Result<CompletionResponse> {
         let base_url = self.get_base_url(config);
         let model = self.get_model(config);
+
+        debug!("Starting completion request to {} with model {}", base_url, model);
+
+        // Handle MLX separately (local inference on Apple Silicon)
+        if matches!(self.provider, LlmProvider::Mlx) {
+            return self.complete_mlx(prompt, &model, state).await;
+        }
 
         // Use Anthropic API only for default Anthropic endpoint
         if matches!(self.provider, LlmProvider::Anthropic)
@@ -275,9 +287,15 @@ impl ApiClient {
         self.complete_openai(prompt, &base_url, &model, config, state).await
     }
 
+    #[instrument(skip(self, config, state), fields(provider = ?self.provider, model))]
     pub async fn complete_streaming(&self, prompt: &str, config: &Config, state: &AppState) -> Result<CompletionResponse> {
         let base_url = self.get_base_url(config);
         let model = self.get_model(config);
+
+        // Handle MLX separately
+        if matches!(self.provider, LlmProvider::Mlx) {
+            return self.complete_mlx_streaming(prompt, &model, state).await;
+        }
 
         if matches!(self.provider, LlmProvider::Anthropic)
             && !config.base_url.as_ref().map(|u| !u.is_empty()).unwrap_or(false)
@@ -287,6 +305,118 @@ impl ApiClient {
         }
 
         self.complete_openai_streaming(prompt, &base_url, &model, config, state).await
+    }
+
+    /// Complete using MLX (Apple Silicon local inference)
+    async fn complete_mlx(&self, prompt: &str, model: &str, _state: &AppState) -> Result<CompletionResponse> {
+        use crate::mlx::MlxConfig;
+
+        let mlx_config = MlxConfig::new();
+
+        if !MlxConfig::is_apple_silicon() {
+            anyhow::bail!("MLX is only available on Apple Silicon Macs");
+        }
+
+        if !mlx_config.check_mlx_lm_installed() {
+            anyhow::bail!("mlx-lm not installed. Run: pip install mlx-lm");
+        }
+
+        // Build full prompt with conversation history
+        let full_prompt = self.build_mlx_prompt(prompt, _state);
+
+        debug!("Running MLX inference with model: {}", model);
+
+        let content = mlx_config.generate(&full_prompt, model).await?;
+        let input_len = full_prompt.len();
+        let output_len = content.len();
+
+        // Estimate token usage (rough approximation)
+        let total_tokens = (output_len / 4) as u32;
+
+        Ok(CompletionResponse {
+            content,
+            model: model.to_string(),
+            usage: TokenUsage {
+                input_tokens: (input_len / 4) as u32,
+                output_tokens: total_tokens,
+                total_tokens: ((input_len + output_len) / 4) as u32,
+            },
+            stop_reason: Some("stop".to_string()),
+        })
+    }
+
+    /// Complete using MLX with streaming
+    async fn complete_mlx_streaming(&self, prompt: &str, model: &str, _state: &AppState) -> Result<CompletionResponse> {
+        use crate::mlx::MlxConfig;
+        use std::sync::{Arc, Mutex};
+
+        let mlx_config = MlxConfig::new();
+
+        if !MlxConfig::is_apple_silicon() {
+            anyhow::bail!("MLX is only available on Apple Silicon Macs");
+        }
+
+        if !mlx_config.check_mlx_lm_installed() {
+            anyhow::bail!("mlx-lm not installed. Run: pip install mlx-lm");
+        }
+
+        let full_prompt = self.build_mlx_prompt(prompt, _state);
+        let input_len = full_prompt.len();
+
+        debug!("Running MLX streaming inference with model: {}", model);
+
+        let full_content = Arc::new(Mutex::new(String::new()));
+
+        let full_content_clone = full_content.clone();
+        mlx_config.generate_streaming(&full_prompt, model, move |chunk| {
+            print!("{}", chunk);
+            std::io::Write::flush(&mut std::io::stdout()).ok();
+            if let Ok(mut content) = full_content_clone.lock() {
+                content.push_str(chunk);
+            }
+        }).await?;
+
+        println!(); // Newline after streaming
+
+        // Extract the content from the Arc<Mutex<String>>
+        let content = full_content.lock().unwrap().clone();
+        let output_len = content.len();
+        let total_tokens = (output_len / 4) as u32;
+
+        Ok(CompletionResponse {
+            content,
+            model: model.to_string(),
+            usage: TokenUsage {
+                input_tokens: (input_len / 4) as u32,
+                output_tokens: total_tokens,
+                total_tokens: ((input_len + output_len) / 4) as u32,
+            },
+            stop_reason: Some("stop".to_string()),
+        })
+    }
+
+    /// Build prompt for MLX with conversation history
+    fn build_mlx_prompt(&self, prompt: &str, state: &AppState) -> String {
+        let mut messages: Vec<String> = Vec::new();
+
+        // Add system prompt if present
+        if let Some(system) = &state.config.system_prompt {
+            messages.push(format!("<|system|>\n{}</s>\n", system));
+        }
+
+        // Add conversation history
+        for msg in &state.conversation_history {
+            match msg.role.as_str() {
+                "user" => messages.push(format!("<|user|>\n{}</s>\n", msg.content)),
+                "assistant" => messages.push(format!("<|assistant|>\n{}</s>\n", msg.content)),
+                _ => messages.push(format!("<|{}|>\n{}</s>\n", msg.role, msg.content)),
+            }
+        }
+
+        // Add current prompt
+        messages.push(format!("<|user|>\n{}</s>\n<|assistant|>\n", prompt));
+
+        messages.join("")
     }
 
     async fn complete_anthropic(&self, prompt: &str, base_url: &str, model: &str, config: &Config) -> Result<CompletionResponse> {
@@ -302,7 +432,7 @@ impl ApiClient {
 
         let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
 
-        let mut req_builder = self.client
+        let req_builder = self.client
             .post(&url)
             .header("x-api-key", config.api_key.clone().unwrap_or_default())
             .header("anthropic-version", "2023-06-01")
@@ -438,7 +568,7 @@ impl ApiClient {
         // Handle SSE streaming response
         let mut stream = response.bytes_stream();
         let mut full_content = String::new();
-        let mut total_tokens = 0u32;
+        let total_tokens = 0u32;
 
         while let Some(chunk_result) = stream.next().await {
             let chunk = match chunk_result {
@@ -449,8 +579,7 @@ impl ApiClient {
             // Parse SSE lines: data: {"choices":[{"delta":{"content":"..."}}]}
             let text = String::from_utf8_lossy(&chunk);
             for line in text.lines() {
-                if line.starts_with("data: ") {
-                    let data = &line[6..];
+                if let Some(data) = line.strip_prefix("data: ") {
                     if data == "[DONE]" {
                         continue;
                     }

@@ -3,7 +3,6 @@
 //! This module defines the command-line interface using clap.
 
 use clap::{
-    builder::PossibleValue,
     Command, Parser, Subcommand, ValueEnum,
 };
 use std::path::PathBuf;
@@ -178,6 +177,22 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub ide: bool,
 
+    /// Use MLX for local inference on Apple Silicon
+    #[arg(long, global = true, hide = true)]
+    pub mlx: bool,
+
+    /// MLX model to use (e.g., mlx-community/llama-3.2-3b-instruct-4bit)
+    #[arg(long, value_name = "MODEL_ID", global = true, hide = true)]
+    pub mlx_model: Option<String>,
+
+    /// Download an MLX model from HuggingFace
+    #[arg(long, value_name = "MODEL_ID", global = true, hide = true)]
+    pub mlx_download: Option<String>,
+
+    /// List available MLX models
+    #[arg(long, global = true, hide = true)]
+    pub mlx_list_models: bool,
+
     /// Prompt to execute (use with -p/--print)
     #[arg(global = true)]
     pub prompt: Option<Vec<String>>,
@@ -258,23 +273,26 @@ pub enum CommandEnum {
 
     /// Show version
     Version,
+
+    /// Plugin management
+    #[command(subcommand)]
+    Plugin(plugin::PluginCommand),
 }
 
 // MCP subcommands
 pub mod mcp {
-    use clap::{Parser, Subcommand};
+    use clap::Subcommand;
 
     #[derive(Debug, Clone, Subcommand)]
     pub enum McpCommand {
         /// Add an MCP server
         Add {
             /// Server name
+            #[arg(value_name = "NAME")]
             name: String,
-            /// Command or URL
-            command_or_url: String,
-            /// Additional arguments
-            #[arg(trailing_var_arg = true)]
-            args: Vec<String>,
+            /// Command and arguments as single string
+            #[arg(value_name = "COMMAND")]
+            command: String,
         },
         /// Add MCP server from JSON
         AddJson {
@@ -306,7 +324,7 @@ pub mod mcp {
 
 // Auth subcommands
 pub mod auth {
-    use clap::{Parser, Subcommand};
+    use clap::Subcommand;
 
     #[derive(Debug, Clone, Subcommand)]
     pub enum AuthCommand {
@@ -325,7 +343,7 @@ pub mod auth {
 
 // Config subcommands
 pub mod config {
-    use clap::{Parser, Subcommand};
+    use clap::Subcommand;
 
     #[derive(Debug, Clone, Subcommand)]
     pub enum ConfigCommand {
@@ -345,6 +363,98 @@ pub mod config {
         },
         /// Edit configuration file
         Edit,
+    }
+}
+
+// Plugin subcommands
+pub mod plugin {
+    use clap::Subcommand;
+
+    #[derive(Debug, Clone, Subcommand)]
+    pub enum PluginCommand {
+        /// List installed plugins
+        List {
+            /// Output as JSON
+            #[arg(long)]
+            json: bool,
+            /// Show all plugins including disabled
+            #[arg(long)]
+            all: bool,
+        },
+        /// Add a plugin from git URL or local path
+        Add {
+            /// Plugin source (git URL or local path)
+            source: String,
+            /// Installation scope (user or project)
+            #[arg(long)]
+            scope: Option<PluginScopeArg>,
+        },
+        /// Remove an installed plugin
+        Remove {
+            /// Plugin name
+            name: String,
+        },
+        /// Enable a plugin
+        Enable {
+            /// Plugin name
+            name: String,
+        },
+        /// Disable a plugin
+        Disable {
+            /// Plugin name
+            name: String,
+        },
+        /// Update plugin(s)
+        Update {
+            /// Plugin name (omit to update all)
+            name: Option<String>,
+        },
+        /// Search for available plugins
+        Search {
+            /// Search query
+            query: String,
+        },
+        /// List all available skills
+        Skills,
+        /// Marketplace management
+        Marketplace {
+            #[command(subcommand)]
+            subcmd: Option<MarketplaceSubcommand>,
+        },
+        /// Validate a plugin at a path
+        Validate {
+            /// Plugin path to validate
+            path: String,
+        },
+        /// Reload all plugins
+        Reload,
+    }
+
+    #[derive(Debug, Clone, Copy, clap::ValueEnum)]
+    pub enum PluginScopeArg {
+        User,
+        Project,
+    }
+
+    #[derive(Debug, Clone, Subcommand)]
+    pub enum MarketplaceSubcommand {
+        /// List configured marketplaces
+        List,
+        /// Add a new marketplace
+        Add {
+            /// Marketplace source (git repo or URL)
+            source: String,
+        },
+        /// Remove a marketplace
+        Remove {
+            /// Marketplace name
+            name: String,
+        },
+        /// Update marketplace listings
+        Update {
+            /// Marketplace name (omit for all)
+            name: Option<String>,
+        },
     }
 }
 
@@ -385,21 +495,4 @@ impl Cli {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_cli_parsing() {
-        let cli = Cli::parse_from(["code-buddy", "--print", "Hello, world!"]);
-        assert!(cli.print);
-    }
-
-    #[test]
-    fn test_mcp_command() {
-        let cli = Cli::parse_from(["code-buddy", "mcp", "list"]);
-        match cli.command {
-            Some(CommandEnum::Mcp(mcp::McpCommand::List)) => {}
-            _ => panic!("Expected MCP list command"),
-        }
-    }
-}
+mod tests;
