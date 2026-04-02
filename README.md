@@ -1,6 +1,6 @@
 # Code Buddy
 
-**Code Buddy** is a powerful AI coding assistant CLI with support for 14+ LLM providers. It brings Claude Code-like capabilities to any machine learning model.
+**Code Buddy** is a powerful AI coding assistant CLI with support for 15+ LLM providers. It brings Claude Code-like capabilities to any machine with native performance.
 
 ## Performance
 
@@ -21,13 +21,30 @@ Code Buddy is **5-19x faster** than original Claude Code (Node.js):
 
 ## Features
 
-- **Multi-Provider Support**: Works with Anthropic, OpenAI, OpenRouter, NVIDIA NIM, Ollama, LM Studio, Groq, DeepSeek, Mistral, Perplexity, Together, AWS Bedrock, Azure, and Google Vertex AI
-- **Local Models**: Run entirely on your own hardware with Ollama or LM Studio
-- **Free Models**: Access free models via OpenRouter
+### Core Features
+- **Multi-Provider Support**: Anthropic, OpenAI, OpenRouter, NVIDIA NIM, Ollama, LM Studio, Groq, DeepSeek, Mistral, Perplexity, Together, AWS Bedrock, Azure, Google Vertex AI, **MLX (Apple Silicon)**
+- **Local Models**: Run entirely on your own hardware with Ollama, LM Studio, or MLX
+- **Apple Silicon MLX**: Native LLM inference on M1/M2/M3/M4 Macs using Apple's MLX framework
+- **Free Models**: Access free models via OpenRouter and NVIDIA NIM
 - **MCP Server Support**: Connect to Model Context Protocol servers
 - **Streaming Responses**: Real-time token-by-token output
 - **Conversation History**: Maintains context across interactions
-- **Extensible**: Built with Rust for performance and safety
+- **Auto-Compact**: Automatic summarization of long conversations
+- **Plugin System**: Extensible architecture for custom functionality
+
+### Developer Tools
+- **Tool Execution**: Built-in tools for file operations, bash commands, web search, and more
+- **Bash Execution**: Run shell commands with safety checks
+- **File Operations**: Read, write, edit, mkdir, rm, cp, mv
+- **Web Search**: Search the web for current information
+- **Web Fetch**: Retrieve and analyze web page content
+- **Pattern Matching**: Glob and grep for code exploration
+
+### Commands & Interface
+- **Interactive REPL**: Chat-style interface with slash commands
+- **Print Mode**: One-liner mode for quick queries
+- **JSON Output**: Machine-readable output format
+- **Streaming**: Real-time token streaming
 
 ## Installation
 
@@ -74,6 +91,8 @@ cargo install --path . --force
 
 - **Rust** (optional, auto-installed by installer): Install via [rustup](https://rustup.rs/)
 - **API Key**: Depending on your provider (see Configuration below)
+- **Python** (optional, for MLX): Required for Apple Silicon MLX inference
+- **Ollama** (optional, for local models): Install from [ollama.com](https://ollama.com)
 
 ## Quick Start
 
@@ -95,7 +114,7 @@ code-buddy -p "Hello, world!"
 # Install (if not done)
 curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash
 
-# Run setup wizard
+# Run setup wizard (includes MLX setup on Apple Silicon)
 code-buddy setup
 
 # Or run directly
@@ -112,6 +131,10 @@ code-buddy config set api_key YOUR_NVIDIA_API_KEY
 # Ollama (local models - no API key needed)
 code-buddy config set llm_provider ollama
 
+# MLX (Apple Silicon - FREE, local inference)
+code-buddy config set llm_provider mlx
+code-buddy --mlx  # Interactive MLX setup
+
 # OpenRouter (includes free models)
 code-buddy config set llm_provider openrouter
 code-buddy config set api_key your-openrouter-key
@@ -127,7 +150,7 @@ code-buddy config set api_key your-openai-key
 ### 2. Run Your First Prompt
 
 ```bash
-# Interactive mode (when full implementation is ready)
+# Interactive mode (REPL)
 code-buddy
 
 # Non-interactive mode (print response and exit)
@@ -138,6 +161,50 @@ code-buddy -p "Explain this code" --output-format stream-json
 
 # With specific model
 code-buddy -p "Write a Rust web server" --model opus
+```
+
+## MLX Apple Silicon Support
+
+Code Buddy supports native LLM inference on Apple Silicon Macs using Apple's MLX framework.
+
+### Setup
+
+```bash
+# Interactive MLX setup
+code-buddy --mlx
+
+# List available models
+code-buddy --mlx-list-models
+
+# Download a specific model
+code-buddy --mlx-download mlx-community/llama-3.2-3b-instruct-4bit
+
+# Set MLX as provider
+code-buddy --mlx-model mlx-community/llama-3.2-3b-instruct-4bit
+```
+
+### Popular MLX Models
+
+| Model | Size | Description |
+|-------|------|-------------|
+| Llama 3.2 1B | ~700MB | Lightweight, fast |
+| Llama 3.2 3B | ~2GB | Balanced performance |
+| Qwen 2.5 1.5B | ~1GB | Efficient |
+| Gemma 2B | ~1.8GB | Google's model |
+| Llama 3.1 8B | ~5GB | Full-featured |
+| Mistral 7B | ~4GB | High quality |
+
+### Manual Installation
+
+```bash
+# Install mlx-lm Python package
+pip install mlx-lm
+
+# Verify installation
+python3 -c "import mlx_lm; print('MLX ready!')"
+
+# Use with code-buddy
+code-buddy --provider mlx --model mlx-community/llama-3.2-3b-instruct-4bit -p "Hello"
 ```
 
 ## Configuration
@@ -151,8 +218,8 @@ code-buddy setup
 ```
 
 This will guide you through:
-1. Selecting your LLM provider
-2. Choosing a model
+1. Selecting your LLM provider (Cloud or Local)
+2. Choosing a model (including MLX models on Apple Silicon)
 3. Entering your API key (if needed)
 
 ### Configuration File
@@ -169,8 +236,21 @@ Config is stored at:
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `OPENROUTER_API_KEY` | OpenRouter API key |
+| `NVIDIA_API_KEY` | NVIDIA NIM API key |
+| `GROQ_API_KEY` | Groq API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key |
+| `TOGETHER_API_KEY` | Together AI API key |
 | `ANTHROPIC_BASE_URL` | Custom API endpoint |
 | `OLLAMA_HOST` | Ollama host (default: localhost:11434) |
+| `LLM_PROVIDER` | Default provider (anthropic, openai, ollama, mlx, etc.) |
+
+### Auto-Compact Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTO_COMPACT` | true | Enable auto-compact |
+| `COMPACT_THRESHOLD` | 85 | % of context window to trigger compact |
+| `COMPACT_MESSAGES` | 20 | Messages to keep after compact |
 
 ### CLI Configuration
 
@@ -195,6 +275,18 @@ code-buddy config edit
 ```
 
 ## LLM Providers
+
+### MLX (Apple Silicon - Recommended for Mac Users)
+
+Native LLM inference using Apple's MLX framework. No API key needed, runs locally.
+
+```bash
+# Setup MLX
+code-buddy --mlx
+
+# Use with code-buddy
+code-buddy --provider mlx --model mlx-community/llama-3.2-3b-instruct-4bit -p "Hello"
+```
 
 ### Ollama (Recommended for Local Development)
 
@@ -269,6 +361,8 @@ code-buddy -p "Write a Python web scraper"
 | AWS Bedrock | `bedrock` |
 | Azure OpenAI | `azure` |
 | Google Vertex | `vertex` |
+| LM Studio | `lmstudio` |
+| **MLX** | `mlx` |
 
 ## MCP Server Support
 
@@ -286,7 +380,32 @@ code-buddy mcp add-from-claude-desktop
 
 # Remove a server
 code-buddy mcp remove my-server
+
+# Reset project choices
+code-buddy mcp reset-project-choices
 ```
+
+## REPL Commands
+
+In interactive REPL mode (`code-buddy`), use slash commands:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/quit`, `/exit` | Exit Code Buddy |
+| `/clear` | Clear conversation history |
+| `/status` | Show current configuration |
+| `/model <name>` | Change model |
+| `/provider <name>` | Change LLM provider |
+| `/history` | Show conversation history |
+| `/reset` | Reset conversation |
+| `/models` | List available models |
+| `/cost` | Show estimated costs |
+| `/compact` | Compact context window |
+| `/context` | Show context usage |
+| `/system` | Show system configuration |
+| `/set <key> <value>` | Set configuration option |
+| `/update` | Check for or install updates |
 
 ## Commands
 
@@ -316,17 +435,24 @@ code-buddy mcp list                     # List MCP servers
 code-buddy mcp add <name> <command>     # Add MCP server
 code-buddy mcp remove <name>            # Remove MCP server
 
+# MLX (Apple Silicon)
+code-buddy --mlx                        # Interactive MLX setup
+code-buddy --mlx-list-models           # List available MLX models
+code-buddy --mlx-download <model-id>    # Download MLX model
+code-buddy --mlx-model <model-id>       # Set MLX model
+
 # Agents
 code-buddy agents --list                # List configured agents
 
 # System
 code-buddy status                        # Show status
-code-buddy doctor                        # Health checks
+code-buddy doctor                        # Health checks (includes MLX check)
 code-buddy version                       # Show version
 
 # Installation
 code-buddy install [target]             # Install native build
 code-buddy update                        # Check for updates
+code-buddy --self-update                # Self-update
 ```
 
 ## Output Formats
@@ -351,33 +477,36 @@ Options:
   -p, --print                 Print response and exit
   --output-format <format>    Output format: text, json, stream-json
   --model <model>            Model to use
+  --provider <provider>       LLM provider (anthropic, openai, ollama, mlx, etc.)
   --agent <name>             Agent to use
   --verbose                   Enable verbose output
   -d, --debug [filter]       Enable debug mode
+  --mlx                       MLX setup (Apple Silicon)
+  --mlx-model <model-id>     Set MLX model
+  --mlx-download <model-id>  Download MLX model
+  --mlx-list-models           List MLX models
   -h, --help                  Show help
   -v, --version               Show version
-
-Print Mode:
-  code-buddy -p "Your prompt here"
-
-Interactive REPL Mode:
-  code-buddy
-
-  # In REPL mode, use slash commands:
-  /help     - Show available commands
-  /quit     - Exit Code Buddy
-  /clear    - Clear conversation history
-  /status   - Show current configuration
-  /model    - Change model
-  /provider - Change LLM provider
-  /history  - Show conversation history
-  /reset    - Reset conversation
-  /models   - List available models
-  /cost     - Show estimated costs
-  /context  - Show context usage
-  /system   - Show system configuration
-  /set      - Set configuration option
 ```
+
+## Built-in Tools
+
+Code Buddy includes powerful built-in tools:
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| `bash` | Execute shell commands | `bash "ls -la"` |
+| `read` | Read file contents | `read "/path/to/file"` |
+| `write` | Write content to file | `write "/path" "content"` |
+| `edit` | Edit file with changes | `edit "/path" "old" "new"` |
+| `mkdir` | Create directory | `mkdir "/path/to/dir"` |
+| `rm` | Remove file/directory | `rm "/path"` |
+| `cp` | Copy file | `cp "/src" "/dest"` |
+| `mv` | Move/rename file | `mv "/src" "/dest"` |
+| `grep` | Search file contents | `grep "/path" "pattern"` |
+| `glob` | Find files by pattern | `glob "/path" "*.rs"` |
+| `websearch` | Search the web | `websearch "query"` |
+| `webfetch` | Fetch web page | `webfetch "https://..."` |
 
 ## Architecture
 
@@ -390,17 +519,28 @@ Interactive REPL Mode:
 |    - Command routing                                       |
 +-------------------------------------------------------------+
 |  Command Layer (commands/)                                  |
-|    - print, auth, config, mcp, model, status, etc.        |
+|    - print, auth, config, mcp, model, status, setup     |
+|    - REPL with slash commands                             |
 +-------------------------------------------------------------+
 |  API Layer (api/)                                           |
 |    - Multi-provider client                                  |
 |    - Format translation                                     |
 |    - Streaming support                                     |
 +-------------------------------------------------------------+
+|  MLX Layer (mlx/)                                          |
+|    - Apple Silicon detection                               |
+|    - Model download from HuggingFace                      |
+|    - Local inference via mlx-lm                           |
++-------------------------------------------------------------+
 |  Provider Adapters                                         |
-|  +---------+ +---------+ +----------+ +---------+         |
-|  |Anthropic| | OpenAI  | | OpenRouter| | Ollama  | ...    |
-|  +---------+ +---------+ +----------+ +---------+         |
+|  +---------+ +---------+ +----------+ +---------+ +------+ |
+|  |Anthropic| | OpenAI  | | OpenRouter| | Ollama  | | MLX  | ... |
+|  +---------+ +---------+ +----------+ +---------+ +------+ |
++-------------------------------------------------------------+
+|  Tools Layer (tools/)                                      |
+|    - Bash execution                                       |
+|    - File operations                                       |
+|    - Web search/fetch                                     |
 +-------------------------------------------------------------+
 ```
 
@@ -416,6 +556,9 @@ cargo run -- -p "Hello"
 # Run tests
 cargo test
 
+# Run tests with coverage
+cargo tarpaulin --out Html
+
 # Format code
 cargo fmt
 
@@ -423,17 +566,37 @@ cargo fmt
 cargo clippy
 ```
 
+## Testing
+
+Code Buddy has comprehensive unit tests:
+
+```bash
+# Run all tests
+cargo test
+
+# Run tests single-threaded (avoids env var pollution)
+cargo test -- --test-threads=1
+
+# Run with coverage
+cargo tarpaulin
+```
+
 ## Roadmap
 
-- [x] Multi-provider support (14+ providers)
+- [x] Multi-provider support (15+ providers)
+- [x] Apple Silicon MLX support
 - [x] Print mode with streaming
 - [x] Conversation history
+- [x] Auto-compact feature
 - [x] MCP server integration
 - [x] Configuration management
-- [ ] Interactive REPL mode
-- [ ] Full tool execution (Bash, Read, Edit, etc.)
-- [ ] Plugin system
+- [x] Interactive REPL mode
+- [x] Full tool execution (Bash, Read, Edit, Glob, Grep, Web)
+- [x] Plugin system
+- [x] Comprehensive unit tests (114+ tests)
 - [ ] Voice mode
+- [ ] IDE integration
+- [ ] Team collaboration features
 
 ## License
 
@@ -447,3 +610,4 @@ Contributions are welcome! Please read our contributing guidelines before submit
 
 - **Repository**: https://github.com/simpletoolsindia/code-buddy
 - **Issues**: https://github.com/simpletoolsindia/code-buddy/issues
+- **MLX Models**: https://huggingface.co/mlx-community
