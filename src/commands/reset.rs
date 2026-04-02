@@ -14,17 +14,6 @@ pub async fn run(state: &mut AppState, reset_all: bool) -> Result<i32> {
         println!("  - Base URL");
         println!("  - All settings\n");
 
-        let confirm = Select::new()
-            .with_prompt("Are you sure you want to reset all settings?")
-            .items(&["Yes, reset everything", "Cancel"])
-            .default(1)
-            .interact()?;
-
-        if confirm == 1 {
-            println!("\nCancelled. No changes made.\n");
-            return Ok(0);
-        }
-
         state.config.llm_provider = "ollama".to_string();
         state.config.model = None;
         state.config.api_key = None;
@@ -35,7 +24,7 @@ pub async fn run(state: &mut AppState, reset_all: bool) -> Result<i32> {
             return Ok(1);
         }
 
-        println!("\n✓ All settings have been reset!");
+        println!("✓ All settings have been reset!");
         println!("Run 'code-buddy setup' to reconfigure.\n");
     } else {
         println!("\n=== Reset Options ===\n");
