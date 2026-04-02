@@ -31,48 +31,95 @@ Code Buddy is **5-19x faster** than original Claude Code (Node.js):
 
 ## Installation
 
+### One-Command Install (Linux/macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash
+```
+
+Or with configuration:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash -s nvidia YOUR_NVIDIA_API_KEY
+```
+
+### Windows
+
+```powershell
+# Run in PowerShell (Admin)
+irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 | iex
+```
+
+Or with configuration:
+
+```powershell
+irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 | iex -ProviderName nvidia -ApiKey YOUR_KEY
+```
+
+### Via Cargo (Cross-Platform)
+
+```bash
+cargo install --git https://github.com/simpletoolsindia/code-buddy.git
+```
+
 ### From Source
 
 ```bash
-# Clone the repository
 git clone https://github.com/simpletoolsindia/code-buddy.git
 cd code-buddy
-
-# Build
-cargo build --release
-
-# Install
 cargo install --path . --force
-
-# Or copy binary directly
-cp target/release/code-buddy ~/.local/bin/
 ```
 
 ### Prerequisites
 
-- **Rust** (for building from source): Install via [rustup](https://rustup.rs/)
+- **Rust** (optional, auto-installed by installer): Install via [rustup](https://rustup.rs/)
 - **API Key**: Depending on your provider (see Configuration below)
 
 ## Quick Start
 
-### 1. Configure Your LLM Provider
+### One-Command Setup (Recommended)
+
+Install + Configure + Run:
 
 ```bash
-# For NVIDIA NIM (FREE, fast inference) - RECOMMENDED
+# With NVIDIA NIM (FREE)
+curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash -s nvidia YOUR_NVIDIA_API_KEY
+
+# Then run:
+code-buddy -p "Hello, world!"
+```
+
+### Interactive Setup
+
+```bash
+# Install (if not done)
+curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install-simple.sh | bash
+
+# Run setup wizard
+code-buddy setup
+
+# Or run directly
+code-buddy -p "Write a hello world in Python"
+```
+
+### Provider Configuration
+
+```bash
+# NVIDIA NIM (FREE, fast inference) - RECOMMENDED
 code-buddy config set llm_provider nvidia
 code-buddy config set api_key YOUR_NVIDIA_API_KEY
 
-# For Ollama (local models - no API key needed)
+# Ollama (local models - no API key needed)
 code-buddy config set llm_provider ollama
 
-# For OpenRouter (includes free models)
+# OpenRouter (includes free models)
 code-buddy config set llm_provider openrouter
 code-buddy config set api_key your-openrouter-key
 
-# For Anthropic
+# Anthropic
 code-buddy config set api_key your-anthropic-key
 
-# For OpenAI
+# OpenAI
 code-buddy config set llm_provider openai
 code-buddy config set api_key your-openai-key
 ```
