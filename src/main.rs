@@ -1,4 +1,4 @@
-//! Claude Code - Rust Implementation
+//! Code Buddy - Rust Implementation
 //!
 //! A high-performance CLI tool for AI-assisted coding.
 
@@ -104,6 +104,18 @@ async fn run_command(cli: Cli, state: &mut AppState) -> Result<i32> {
             commands::auth::run(Some(subcommand), state).await
         }
 
+        Some(CommandEnum::Setup) => {
+            commands::setup_run(state).await
+        }
+
+        Some(CommandEnum::Reset { all }) => {
+            commands::reset_run(state, all).await
+        }
+
+        Some(CommandEnum::Interactive) => {
+            commands::repl_run(state).await
+        }
+
         Some(CommandEnum::Doctor) => {
             commands::doctor::run(state).await
         }
@@ -146,10 +158,8 @@ async fn run_command(cli: Cli, state: &mut AppState) -> Result<i32> {
         }
 
         None => {
-            // Interactive mode - this would normally start the REPL
-            println!("Code Buddy interactive mode (not yet implemented)");
-            println!("Use -p/--print <prompt> for non-interactive mode");
-            Ok(0)
+            // Interactive REPL mode
+            commands::repl_run(state).await
         }
     }
 }

@@ -201,6 +201,19 @@ pub enum CommandEnum {
     #[command(subcommand)]
     Auth(auth::AuthCommand),
 
+    /// Interactive setup wizard
+    Setup,
+
+    /// Reset configuration
+    Reset {
+        /// Reset all settings
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Interactive REPL mode
+    Interactive,
+
     /// Check health
     Doctor,
 
@@ -336,17 +349,29 @@ impl Cli {
         let mut cmd = Command::new("code-buddy")
             .about("Code Buddy - AI coding assistant")
             .long_about(
-                "Code Buddy starts an interactive session by default.\n\
+                "Code Buddy starts an interactive REPL by default.\n\
                  Use -p/--print for non-interactive output.\n\
                  \n\
-                 Get started:\n\
-                 - code-buddy                 Start interactive session\n\
-                 - code-buddy -p \"prompt\"    Run a prompt\n\
-                 - code-buddy --help          Show all options\n\
+                 Quick Start:\n\
+                 - code-buddy setup               Interactive setup wizard\n\
+                 - code-buddy -p \"prompt\"        Run a prompt\n\
+                 - code-buddy                     Start interactive REPL\n\
+                 \n\
+                 Configuration:\n\
+                 - code-buddy config list         Show all config\n\
+                 - code-buddy config set <key> <val>  Set config\n\
+                 - code-buddy reset               Reset configuration\n\
+                 - code-buddy reset --all         Full factory reset\n\
+                 \n\
+                 In REPL mode, use /commands:\n\
+                 - /help  /quit  /clear  /status  /model  /history\n\
                  \n\
                  Examples:\n\
                  - code-buddy -p \"Write hello world in Python\"\n\
-                 - code-buddy --model opus --print \"Explain this code\"",
+                 - code-buddy --model llama3.2 -p \"Explain this code\"\n\
+                 - code-buddy setup\n\
+                 \n\
+                 See 'code-buddy help <command>' for detailed command help.",
             );
 
         cmd.print_help().unwrap();

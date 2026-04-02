@@ -95,6 +95,19 @@ code-buddy -p "Write a Rust web server" --model opus
 
 ## Configuration
 
+### Interactive Setup
+
+The easiest way to get started is using the interactive setup wizard:
+
+```bash
+code-buddy setup
+```
+
+This will guide you through:
+1. Selecting your LLM provider
+2. Choosing a model
+3. Entering your API key (if needed)
+
 ### Configuration File
 
 Config is stored at:
@@ -124,6 +137,11 @@ code-buddy config get llm_provider
 # Set values
 code-buddy config set llm_provider ollama
 code-buddy config set model llama3.2
+code-buddy config set api_key YOUR_KEY
+
+# Reset configuration
+code-buddy reset                # Show reset options
+code-buddy reset --all         # Full factory reset
 
 # Edit config file directly
 code-buddy config edit
@@ -226,6 +244,11 @@ code-buddy mcp remove my-server
 ## Commands
 
 ```bash
+# Setup & Configuration
+code-buddy setup                         # Interactive setup wizard
+code-buddy reset                          # Reset configuration
+code-buddy reset --all                   # Full factory reset
+
 # Authentication
 code-buddy auth login [--api-key KEY]   # Login with API key
 code-buddy auth logout                   # Logout and clear credentials
@@ -242,7 +265,7 @@ code-buddy model                         # Show current model
 code-buddy model <model-name>           # Set default model
 
 # MCP Servers
-code-buddy mcp list                      # List MCP servers
+code-buddy mcp list                     # List MCP servers
 code-buddy mcp add <name> <command>     # Add MCP server
 code-buddy mcp remove <name>            # Remove MCP server
 
@@ -290,8 +313,23 @@ Options:
 Print Mode:
   code-buddy -p "Your prompt here"
 
-Interactive Mode:
+Interactive REPL Mode:
   code-buddy
+
+  # In REPL mode, use slash commands:
+  /help     - Show available commands
+  /quit     - Exit Code Buddy
+  /clear    - Clear conversation history
+  /status   - Show current configuration
+  /model    - Change model
+  /provider - Change LLM provider
+  /history  - Show conversation history
+  /reset    - Reset conversation
+  /models   - List available models
+  /cost     - Show estimated costs
+  /context  - Show context usage
+  /system   - Show system configuration
+  /set      - Set configuration option
 ```
 
 ## Architecture
