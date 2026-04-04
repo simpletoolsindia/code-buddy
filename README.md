@@ -22,7 +22,14 @@ irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.p
 ### Homebrew
 
 ```bash
-brew tap simpletoolsindia/tap && brew install code-buddy
+brew install simpletoolsindia/tap/code-buddy
+```
+
+Or add the tap once and install without the prefix:
+
+```bash
+brew tap simpletoolsindia/tap
+brew install code-buddy
 ```
 
 ### Cargo
