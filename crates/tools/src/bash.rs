@@ -117,10 +117,13 @@ pub(crate) fn validate_bash_command(
             cwd.to_path_buf()
         }
     };
-    let cwd_prefix = canon_cwd.to_string_lossy();
 
     for token in absolute_path_tokens(command) {
-        if !token.starts_with(cwd_prefix.as_ref()) {
+        // Use Path::starts_with for component-aware comparison:
+        // "/home/user/proj-evil" must NOT pass when cwd is "/home/user/proj".
+        // String prefix matching would incorrectly allow it; Path::starts_with
+        // only matches on full path components.
+        if !Path::new(token).starts_with(&canon_cwd) {
             return Err(ToolError::PathTraversal {
                 tool: tool.to_string(),
                 path: token.to_string(),
@@ -471,6 +474,24 @@ mod tests {
         // The absolute path to a file inside cwd should be allowed.
         let cmd = format!("cat {}", file_inside.display());
         validate_bash_command("bash", &cmd, dir.path()).unwrap();
+    }
+
+    /// Regression: string-prefix matching would allow `/home/user/proj-evil`
+    /// when CWD is `/home/user/proj` because the string starts with the prefix.
+    /// Path::starts_with is component-aware and must reject this.
+    #[test]
+    fn validate_rejects_prefix_collision_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // Build a sibling directory name that shares the prefix of dir but is different.
+        let parent = dir.path().parent().unwrap();
+        let sibling_name = format!("{}-evil", dir.path().file_name().unwrap().to_str().unwrap());
+        let sibling = parent.join(&sibling_name);
+        let cmd = format!("cat {}/secret.txt", sibling.display());
+        let err = validate_bash_command("bash", &cmd, dir.path()).unwrap_err();
+        assert!(
+            matches!(err, ToolError::PathTraversal { .. }),
+            "expected PathTraversal for prefix-collision path, got {err:?}"
+        );
     }
 
     // ── Regression §1: unique tmp dirs prevent race condition ─────────────────

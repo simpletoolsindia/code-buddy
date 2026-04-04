@@ -116,10 +116,20 @@ impl Tool for GlobSearchTool {
 
             let mut results = Vec::new();
             for entry in paths.flatten() {
-                let rel = entry
+                // Canonicalize each matched path and verify it is still within
+                // cwd.  A symlink inside the project root could otherwise point
+                // outside and appear as a valid glob result.
+                let canon_entry = match entry.canonicalize() {
+                    Ok(p) => p,
+                    Err(_) => continue, // skip unresolvable entries
+                };
+                if !canon_entry.starts_with(&cwd) {
+                    continue; // silently discard out-of-root matches
+                }
+                let rel = canon_entry
                     .strip_prefix(&cwd)
                     .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| entry.to_string_lossy().to_string());
+                    .unwrap_or_else(|_| canon_entry.to_string_lossy().to_string());
                 results.push(rel);
             }
             results.sort();
@@ -166,10 +176,15 @@ impl GrepSearchTool {
 }
 
 /// Walk a directory tree and search each file for `pattern` matches.
+///
+/// `canon_cwd` is used to verify that every directory entry we recurse into
+/// is still within the project root after canonicalizing (resolving symlinks).
+/// A symlink inside the project root that points outside is skipped.
 fn grep_dir(
     dir: &Path,
     pattern: &regex::Regex,
     include_glob: Option<&glob::Pattern>,
+    canon_cwd: &Path,
 ) -> Vec<String> {
     let mut results = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -181,7 +196,19 @@ fn grep_dir(
                         continue;
                     }
                 }
-                results.extend(grep_dir(&path, pattern, include_glob));
+                // Canonicalize the subdirectory and verify it is still within
+                // canon_cwd before recursing.  This prevents a symlinked
+                // directory inside the project from pointing outside (e.g.
+                // `proj/link -> /etc`).
+                match path.canonicalize() {
+                    Ok(canon_path) if canon_path.starts_with(canon_cwd) => {
+                        results.extend(grep_dir(&path, pattern, include_glob, canon_cwd));
+                    }
+                    _ => {
+                        // Path escapes CWD or cannot be canonicalized — skip.
+                        continue;
+                    }
+                }
             } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 if let Some(ig) = include_glob {
                     if !ig.matches(name) {
@@ -254,6 +281,13 @@ impl Tool for GrepSearchTool {
         // ── CWD confinement ──────────────────────────────────────────────────
         let target = resolve_within_cwd("grep_search", &self.cwd, path_str)?;
 
+        // Canonicalize cwd once and pass into the blocking task so that
+        // grep_dir can re-check every sub-directory it recurses into.
+        let canon_cwd = self.cwd.canonicalize().map_err(|e| ToolError::ExecutionFailed {
+            tool: "grep_search".to_string(),
+            reason: format!("cannot resolve cwd: {e}"),
+        })?;
+
         let include_str = input["include"].as_str().map(str::to_string);
 
         let results = tokio::task::spawn_blocking(move || -> Result<Vec<String>, ToolError> {
@@ -278,7 +312,7 @@ impl Tool for GrepSearchTool {
                 }
                 Ok(matches)
             } else {
-                Ok(grep_dir(&target, &regex, include_glob.as_ref()))
+                Ok(grep_dir(&target, &regex, include_glob.as_ref(), &canon_cwd))
             }
         })
         .await
@@ -407,6 +441,32 @@ mod tests {
         );
     }
 
+    /// Regression: a symlink inside cwd that points outside must NOT appear
+    /// in glob results.  The glob engine follows symlinks; each match is now
+    /// re-canonicalized and checked before being included in the output.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn glob_excludes_symlink_escaping_cwd() {
+        let dir = tmp();
+        let outside = tmp();
+        // Create cwd/link -> outside_dir
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+        // Write a file inside the linked (outside) dir.
+        std::fs::write(outside.path().join("secret.txt"), "secret").unwrap();
+
+        let tool = GlobSearchTool::new(dir.path().to_path_buf());
+        let out = tool
+            .execute(json!({ "pattern": "link/*.txt" }))
+            .await
+            .unwrap();
+        // The out-of-root file must NOT appear in results.
+        assert!(
+            !out.contains("secret"),
+            "glob must not return files through symlinks escaping cwd, got: {out}"
+        );
+    }
+
     // ── GrepSearchTool ────────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -507,5 +567,33 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::PathTraversal { .. }));
+    }
+
+    /// Regression: a symlinked sub-directory inside cwd that points outside
+    /// must NOT be traversed by grep_search.
+    ///
+    /// `grep_dir` now canonicalizes every directory it is about to recurse
+    /// into and skips those that fall outside `canon_cwd`.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn grep_does_not_traverse_symlink_escaping_cwd() {
+        let dir = tmp();
+        let outside = tmp();
+        // Create a file outside cwd that contains our search term.
+        std::fs::write(outside.path().join("secret.txt"), "TOP_SECRET_DATA").unwrap();
+        // Create a symlink inside cwd pointing to the outside dir.
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+
+        let tool = GrepSearchTool::new(dir.path().to_path_buf());
+        let out = tool
+            .execute(json!({ "pattern": "TOP_SECRET_DATA" }))
+            .await
+            .unwrap();
+        // The secret content must NOT appear in grep results.
+        assert!(
+            !out.contains("TOP_SECRET_DATA"),
+            "grep must not traverse symlinks escaping cwd, got: {out}"
+        );
     }
 }
