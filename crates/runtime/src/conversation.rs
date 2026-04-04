@@ -341,11 +341,32 @@ impl ConversationRuntime {
             let use_streaming =
                 iterations == 0 && self.config.streaming && sink.is_some();
 
+            if self.config.debug {
+                eprintln!(
+                    "[debug] iter={iterations} model={} msgs={} streaming={use_streaming}",
+                    request.model,
+                    request.messages.len()
+                );
+                if tracing::enabled!(tracing::Level::DEBUG) {
+                    if let Ok(json) = serde_json::to_string_pretty(&request.messages) {
+                        eprintln!("[debug] request.messages = {json}");
+                    }
+                }
+            }
+
             let (response_text, tool_calls, input_toks, output_toks) = if use_streaming {
                 self.do_streaming_turn(&request, &mut sink).await?
             } else {
-                self.do_send_turn(&request, &mut sink, iterations > 0).await?
+                self.do_send_turn(&request, &mut sink).await?
             };
+
+            if self.config.debug {
+                eprintln!(
+                    "[debug] response: text={:?}... tool_calls={}",
+                    response_text.chars().take(80).collect::<String>(),
+                    tool_calls.len()
+                );
+            }
 
             total_input_tokens = total_input_tokens.saturating_add(input_toks);
             total_output_tokens = total_output_tokens.saturating_add(output_toks);
@@ -401,11 +422,15 @@ impl ConversationRuntime {
         }
     }
 
+    /// Send a non-streaming request and emit the response text to `sink`.
+    ///
+    /// The text is always emitted regardless of iteration count. Intermediate
+    /// tool-call responses have empty text content, so nothing is printed for them.
+    /// The final assistant answer (which has non-empty text) is always visible.
     async fn do_send_turn(
         &self,
         request: &MessageRequest,
         sink: &mut TextSink,
-        silent: bool,
     ) -> Result<(String, Vec<ParsedToolCall>, u32, u32), RuntimeError> {
         let response = self
             .provider
@@ -417,7 +442,8 @@ impl ConversationRuntime {
         let input_toks = response.usage.input_tokens;
         let output_toks = response.usage.output_tokens;
 
-        if !silent {
+        // Always emit text — empty strings are a no-op on the terminal.
+        if !text.is_empty() {
             sink.call(&text);
         }
 
@@ -759,6 +785,33 @@ mod tests {
         }));
         rt.run_turn("hi", sink).await.unwrap();
         assert_eq!(*collected.lock().unwrap(), "streaming text");
+    }
+
+    /// Regression: the FINAL assistant answer after a tool call must be emitted to
+    /// the sink, not silenced by the `iterations > 0` guard.
+    ///
+    /// Failure mode in the old code: `do_send_turn(…, silent = true)` for all
+    /// iterations after the first, so the final response was never printed to the
+    /// terminal when tool calls were made.
+    #[tokio::test]
+    async fn final_answer_after_tool_call_is_emitted_to_sink() {
+        let responses = vec![
+            MockProvider::tool_call_response("c1", "echo", json!({ "msg": "ping" })),
+            MockProvider::text_response("final answer here"),
+        ];
+        let mut rt = make_runtime(responses);
+        let collected = Arc::new(Mutex::new(String::new()));
+        let c = collected.clone();
+        let sink = TextSink::new(Box::new(move |text: &str| {
+            c.lock().unwrap().push_str(text);
+        }));
+        let summary = rt.run_turn("do a tool call", sink).await.unwrap();
+        assert_eq!(summary.response_text, "final answer here");
+        assert_eq!(
+            *collected.lock().unwrap(),
+            "final answer here",
+            "final answer must be emitted to sink; old bug silenced it"
+        );
     }
 
     // ── Unknown tool error injected as tool result ────────────────────────────

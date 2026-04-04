@@ -70,7 +70,8 @@ pub struct AskArgs {
     pub prompt: Vec<String>,
 
     /// Disable tool calling for this request.
-    #[arg(long)]
+    /// Also accepted as --no-tool-calling (both forms work identically).
+    #[arg(long, alias = "no-tool-calling")]
     pub no_tools: bool,
 
     /// Stream the response token by token.
@@ -82,7 +83,8 @@ pub struct AskArgs {
 #[derive(Debug, Args, Default)]
 pub struct RunArgs {
     /// Disable tool calling in this session.
-    #[arg(long)]
+    /// Also accepted as --no-tool-calling (both forms work identically).
+    #[arg(long, alias = "no-tool-calling")]
     pub no_tools: bool,
 }
 
