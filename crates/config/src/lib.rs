@@ -38,9 +38,13 @@ pub struct AppConfig {
     pub api_key: Option<String>,
 
     /// Request timeout in seconds.
+    /// TOML alias: `timeout`
+    #[serde(alias = "timeout")]
     pub timeout_seconds: u64,
 
     /// Maximum number of automatic retries on transient errors.
+    /// TOML alias: `retries`
+    #[serde(alias = "retries")]
     pub max_retries: u32,
 
     /// Enable debug-level logging.
@@ -452,6 +456,20 @@ streaming = true
         assert_eq!(config.provider, "openrouter");
         assert_eq!(config.model.as_deref(), Some("mistralai/mistral-7b"));
         assert_eq!(config.timeout_seconds, 60);
+    }
+
+    #[test]
+    fn load_toml_short_aliases() {
+        let file = write_temp_config(
+            r#"
+provider = "openai"
+timeout = 45
+retries = 2
+"#,
+        );
+        let config = AppConfig::load_from(file.path()).expect("short alias keys should load");
+        assert_eq!(config.timeout_seconds, 45, "timeout alias should set timeout_seconds");
+        assert_eq!(config.max_retries, 2, "retries alias should set max_retries");
     }
 
     #[test]
