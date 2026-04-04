@@ -496,7 +496,7 @@ mod tests {
 
     // ── Regression §1: unique tmp dirs prevent race condition ─────────────────
 
-    /// Regression test for bug_report.md §1 (Race Condition in Sandbox).
+    /// Regression test for `bug_report.md` §1 (Race Condition in Sandbox).
     ///
     /// Two concurrent `BashTool` executions that both write to `$TMPDIR/output`
     /// must NOT conflict. Each invocation sees its own isolated `$TMPDIR`.

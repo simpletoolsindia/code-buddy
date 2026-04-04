@@ -496,7 +496,7 @@ mod tests {
         assert!(out.contains("No matches"));
     }
 
-    /// Regression test for bug_report.md §2 (Injection via malformed patterns).
+    /// Regression test for `bug_report.md` §2 (Injection via malformed patterns).
     ///
     /// A malformed regex must be rejected with a structured `InvalidArgs` error
     /// rather than causing a panic or being passed raw to a query engine.
@@ -567,7 +567,7 @@ mod tests {
     }
 
     /// Regression: a symlinked sub-directory inside cwd that points outside
-    /// must NOT be traversed by grep_search.
+    /// must NOT be traversed by `grep_search`.
     ///
     /// `grep_dir` now canonicalizes every directory it is about to recurse
     /// into and skips those that fall outside `canon_cwd`.

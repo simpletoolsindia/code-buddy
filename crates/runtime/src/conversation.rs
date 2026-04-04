@@ -1188,11 +1188,11 @@ mod tests {
         )
     }
 
-    /// Full read_file cycle:
+    /// Full `read_file` cycle:
     ///   1. Model asks to call `read_file` on a file that exists.
-    ///   2. Runtime executes the real ReadFileTool; content is injected into history.
+    ///   2. Runtime executes the real `ReadFileTool`; content is injected into history.
     ///   3. Model returns a final text answer.
-    ///   4. Verify: tool_calls_made == 1, response_text is non-empty.
+    ///   4. Verify: `tool_calls_made` == 1, `response_text` is non-empty.
     #[tokio::test]
     async fn e2e_read_file_tool_executes_and_injects_content() {
         let dir = tempfile::tempdir().unwrap();
@@ -1223,9 +1223,9 @@ mod tests {
         );
     }
 
-    /// Full write_file cycle:
+    /// Full `write_file` cycle:
     ///   1. Model asks to call `write_file` to create a new file.
-    ///   2. Runtime executes the real WriteFileTool; file is written to disk.
+    ///   2. Runtime executes the real `WriteFileTool`; file is written to disk.
     ///   3. Model returns a final text answer.
     ///   4. Verify the file was actually created on disk with the expected content.
     #[tokio::test]
@@ -1288,7 +1288,7 @@ mod tests {
         assert!(summary.response_text.contains("value=42"));
     }
 
-    /// Strict no-tool mode: when the ToolRegistry is empty (has_tools == false)
+    /// Strict no-tool mode: when the `ToolRegistry` is empty (`has_tools` == false)
     /// and the model unexpectedly emits a tool call, the runtime should ignore
     /// the tool call and return the response text without error.
     #[tokio::test]
@@ -1316,8 +1316,8 @@ mod tests {
         assert_eq!(summary.response_text, "No tools needed.");
     }
 
-    /// Full-pipeline config test: verify that AppConfig::default() produces
-    /// a valid RuntimeConfig and that a runtime built from it handles a
+    /// Full-pipeline config test: verify that `AppConfig::default()` produces
+    /// a valid `RuntimeConfig` and that a runtime built from it handles a
     /// normal exchange without panics.
     #[tokio::test]
     async fn e2e_config_defaults_produce_valid_runtime() {
@@ -1373,7 +1373,7 @@ mod tests {
         assert_eq!(rt.history().len(), 6, "after turn 3: three pairs");
     }
 
-    /// clear_history resets the history to empty without affecting the runtime.
+    /// `clear_history` resets the history to empty without affecting the runtime.
     #[tokio::test]
     async fn e2e_clear_history_resets_context() {
         let mut rt = make_runtime(vec![
@@ -1392,7 +1392,7 @@ mod tests {
     }
 
     /// An out-of-directory path in a tool call is rejected by path confinement.
-    /// The tool returns a ToolError; the runtime injects the error as a tool
+    /// The tool returns a `ToolError`; the runtime injects the error as a tool
     /// result, and the model returns a final text response.
     #[tokio::test]
     async fn e2e_path_escape_attempt_is_rejected_by_tool() {
