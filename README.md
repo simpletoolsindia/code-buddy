@@ -17,24 +17,24 @@ bash install.sh
 The script:
 1. Detects Linux / macOS (including Apple Silicon)
 2. Installs the Rust toolchain via `rustup` if it is not already present
-3. Compiles a release binary with `cargo build --release`
-4. Installs the binary to `~/.local/bin/code-buddy`
+3. Compiles and installs with `cargo install --path crates/cli --root ~/.local`
+4. Binary lands at `~/.local/bin/code-buddy`
 5. Prints PATH guidance if the directory is not in your shell's PATH
 
-Re-running the script is safe — it upgrades an existing install.
+Re-running the script is safe — `cargo install` upgrades an existing install.
 
 ### Options
 
 ```
-bash install.sh --prefix /usr/local/bin   # custom install location
-bash install.sh --check                   # verify existing install only
+bash install.sh --prefix /usr/local   # custom install root (binary → <root>/bin/)
+bash install.sh --check               # verify existing install only
 ```
 
-### Manual build
+### Manual install
 
 ```bash
-cargo build --release --bin code-buddy
-cp target/release/code-buddy ~/.local/bin/
+cargo install --path crates/cli --root ~/.local
+# Binary is placed at ~/.local/bin/code-buddy
 ```
 
 ### Verify

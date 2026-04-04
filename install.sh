@@ -2,12 +2,10 @@
 # install.sh — Code Buddy installer
 #
 # Usage:
-#   curl -fsSL https://example.com/install.sh | bash
 #   bash install.sh
 #   bash install.sh --prefix /usr/local/bin
 #   bash install.sh --check      # verify existing install only
-#
-# This script is idempotent: re-running it will upgrade an existing install.
+#   bash install.sh --help
 
 set -euo pipefail
 
@@ -15,7 +13,7 @@ set -euo pipefail
 
 APP_NAME="code-buddy"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_INSTALL_DIR="${HOME}/.local/bin"
+DEFAULT_PREFIX="${HOME}/.local"
 
 # ── Colour helpers ─────────────────────────────────────────────────────────────
 
@@ -35,32 +33,51 @@ error()   { echo "${BOLD}${RED}[error]${RESET} $*" >&2; }
 success() { echo "${BOLD}${GREEN}[ok]${RESET}   $*"; }
 fail()    { error "$*"; exit 1; }
 
-# ── CLI flags ─────────────────────────────────────────────────────────────────
+# ── Argument parsing ──────────────────────────────────────────────────────────
 
-INSTALL_DIR=""
+INSTALL_PREFIX=""
 CHECK_ONLY=false
 
-for arg in "$@"; do
-    case "$arg" in
-        --check)        CHECK_ONLY=true ;;
-        --prefix=*)     INSTALL_DIR="${arg#--prefix=}" ;;
-        --prefix)       shift; INSTALL_DIR="$1" ;;
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --check)
+            CHECK_ONLY=true
+            shift
+            ;;
+        --prefix)
+            if [[ $# -lt 2 ]]; then
+                fail "--prefix requires an argument"
+            fi
+            INSTALL_PREFIX="$2"
+            shift 2
+            ;;
+        --prefix=*)
+            INSTALL_PREFIX="${1#--prefix=}"
+            shift
+            ;;
         -h|--help)
             cat <<EOF
 Usage: $0 [OPTIONS]
 
 Options:
-  --prefix DIR    Install binary to DIR (default: ~/.local/bin)
+  --prefix DIR    Install root (binary goes to DIR/bin). Default: ~/.local
   --check         Verify existing installation without building
   -h, --help      Show this help message
+
+The installer uses \`cargo install --path . --root <prefix>\` so the binary
+is placed at <prefix>/bin/code-buddy (default: ~/.local/bin/code-buddy).
 EOF
             exit 0
             ;;
-        *) warn "Unknown argument: $arg" ;;
+        *)
+            warn "Unknown argument: $1 (ignored)"
+            shift
+            ;;
     esac
 done
 
-INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
+INSTALL_PREFIX="${INSTALL_PREFIX:-$DEFAULT_PREFIX}"
+INSTALL_BIN_DIR="${INSTALL_PREFIX}/bin"
 
 # ── Platform detection ────────────────────────────────────────────────────────
 
@@ -72,29 +89,27 @@ detect_platform() {
     case "$os" in
         Linux)  PLATFORM="linux" ;;
         Darwin) PLATFORM="macos" ;;
-        *)      fail "Unsupported operating system: $os (only Linux and macOS are supported)" ;;
+        *) fail "Unsupported operating system: $os (only Linux and macOS are supported)" ;;
     esac
 
     case "$arch" in
-        x86_64)           ARCH="x86_64" ;;
-        aarch64|arm64)    ARCH="aarch64" ;;
-        *)                warn "Unusual architecture $arch — attempting build anyway" ; ARCH="$arch" ;;
+        x86_64)        ARCH="x86_64" ;;
+        aarch64|arm64) ARCH="aarch64" ;;
+        *) warn "Unusual architecture: $arch — attempting build anyway"; ARCH="$arch" ;;
     esac
 
     info "Platform: ${PLATFORM} / ${ARCH}"
 }
 
-# ── Rust toolchain check ──────────────────────────────────────────────────────
+# ── Rust toolchain ────────────────────────────────────────────────────────────
 
 ensure_rust() {
     if command -v cargo &>/dev/null; then
-        local rust_ver
-        rust_ver="$(rustc --version 2>/dev/null || echo 'unknown')"
-        success "Rust toolchain found: $rust_ver"
+        success "Rust toolchain found: $(rustc --version 2>/dev/null || echo 'unknown')"
         return 0
     fi
 
-    warn "Rust toolchain not found. Installing via rustup..."
+    warn "Rust toolchain not found — installing via rustup..."
 
     if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
         fail "Neither curl nor wget found. Please install one of them and retry."
@@ -102,7 +117,9 @@ ensure_rust() {
 
     local rustup_init
     rustup_init="$(mktemp /tmp/rustup-init.XXXXXX)"
-    trap 'rm -f "$rustup_init"' EXIT
+    # Ensure temp file is removed on exit
+    # shellcheck disable=SC2064
+    trap "rm -f '$rustup_init'" EXIT
 
     if command -v curl &>/dev/null; then
         curl -fsSL "https://sh.rustup.rs" -o "$rustup_init"
@@ -111,88 +128,74 @@ ensure_rust() {
     fi
 
     chmod +x "$rustup_init"
+    "$rustup_init" -y --no-modify-path --profile minimal --default-toolchain stable
 
-    # Install rustup non-interactively with the stable toolchain and no PATH modifications
-    "$rustup_init" -y --no-modify-path --profile minimal --default-toolchain stable 2>&1 \
-        | grep -v "^info:" || true
-
-    # Source the cargo env so the rest of the script can use it
-    # shellcheck source=/dev/null
+    # Source cargo env so subsequent steps find cargo
     if [ -f "${HOME}/.cargo/env" ]; then
+        # shellcheck source=/dev/null
         source "${HOME}/.cargo/env"
     fi
 
+    # Fallback: add to PATH directly
     if ! command -v cargo &>/dev/null; then
-        # Cargo might not be in PATH yet; add it explicitly
         export PATH="${HOME}/.cargo/bin:${PATH}"
     fi
 
     if command -v cargo &>/dev/null; then
         success "Rust installed: $(rustc --version)"
     else
-        fail "rustup installation appeared to succeed but cargo is still not found."
+        fail "rustup install appeared to succeed but cargo is still not in PATH."
     fi
 }
 
-# ── Build ─────────────────────────────────────────────────────────────────────
+# ── Build & install ───────────────────────────────────────────────────────────
 
-build_binary() {
-    info "Building ${APP_NAME} (release)..."
+install_binary() {
+    info "Installing ${APP_NAME} to ${INSTALL_BIN_DIR}..."
 
     if [ ! -f "${REPO_DIR}/Cargo.toml" ]; then
         fail "Cargo.toml not found in ${REPO_DIR}. Run this script from the repository root."
     fi
 
-    # Verify this looks like the right workspace
     if ! grep -q "code-buddy" "${REPO_DIR}/Cargo.toml" 2>/dev/null; then
-        fail "The Cargo.toml at ${REPO_DIR} does not appear to be the code-buddy workspace."
+        fail "The Cargo.toml at ${REPO_DIR} does not look like the code-buddy workspace."
     fi
 
-    (
-        cd "$REPO_DIR"
-        cargo build --release --bin code-buddy 2>&1
-    ) || fail "Build failed. Check the output above for errors."
-
-    success "Build complete."
-}
-
-# ── Install ───────────────────────────────────────────────────────────────────
-
-install_binary() {
-    local src="${REPO_DIR}/target/release/${APP_NAME}"
-
-    if [ ! -f "$src" ]; then
-        fail "Expected binary at ${src} but it does not exist. Build step may have failed."
-    fi
-
-    mkdir -p "$INSTALL_DIR"
-
-    # Check if an older install exists and show the version change
-    local dest="${INSTALL_DIR}/${APP_NAME}"
+    # Show existing version if upgrading
+    local dest="${INSTALL_BIN_DIR}/${APP_NAME}"
     if [ -f "$dest" ]; then
         local old_ver
         old_ver="$("$dest" --version 2>/dev/null || echo 'unknown')"
         info "Upgrading existing install (was: ${old_ver})"
     fi
 
-    cp "$src" "$dest"
-    chmod +x "$dest"
+    # `cargo install --path . --root <prefix>` compiles a release binary and
+    # places it at <prefix>/bin/code-buddy — exactly what the task requires.
+    (
+        cd "$REPO_DIR"
+        cargo install \
+            --path "crates/cli" \
+            --root "$INSTALL_PREFIX" \
+            --bin "$APP_NAME" \
+            2>&1
+    ) || fail "cargo install failed. Check the output above for errors."
+
+    if [ ! -f "$dest" ]; then
+        fail "Expected binary at ${dest} after install but it was not found."
+    fi
+
     success "Installed to ${dest}"
 }
 
 # ── PATH guidance ─────────────────────────────────────────────────────────────
 
 check_path() {
-    local dest="${INSTALL_DIR}/${APP_NAME}"
-
     if command -v "$APP_NAME" &>/dev/null; then
-        local found_at
-        found_at="$(command -v "$APP_NAME")"
-        success "${APP_NAME} is in PATH at: ${found_at}"
+        success "${APP_NAME} is in PATH at: $(command -v "$APP_NAME")"
         return 0
     fi
 
-    warn "${INSTALL_DIR} is not in your PATH."
+    warn "${INSTALL_BIN_DIR} is not in your PATH."
     echo ""
     echo "  Add it to your shell profile:"
     echo ""
@@ -205,15 +208,14 @@ check_path() {
     esac
 
     if [[ "${SHELL:-bash}" == */fish ]]; then
-        echo "    ${YELLOW}fish_add_path ${INSTALL_DIR}${RESET}"
+        echo "    ${YELLOW}fish_add_path ${INSTALL_BIN_DIR}${RESET}"
     else
-        echo "    ${YELLOW}echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ${shell_profile}${RESET}"
+        echo "    ${YELLOW}echo 'export PATH=\"${INSTALL_BIN_DIR}:\$PATH\"' >> ${shell_profile}${RESET}"
         echo "    ${YELLOW}source ${shell_profile}${RESET}"
     fi
 
     echo ""
-    echo "  Or run directly:"
-    echo "    ${YELLOW}${dest} --help${RESET}"
+    echo "  Or run directly:  ${YELLOW}${INSTALL_BIN_DIR}/${APP_NAME} --help${RESET}"
     echo ""
 }
 
@@ -222,18 +224,17 @@ check_path() {
 verify_install() {
     info "Verifying installation..."
 
-    local bin="${INSTALL_DIR}/${APP_NAME}"
+    local bin="${INSTALL_BIN_DIR}/${APP_NAME}"
 
     if [ ! -f "$bin" ]; then
-        # Also check PATH
-        if ! command -v "$APP_NAME" &>/dev/null; then
-            error "${APP_NAME} binary not found at ${bin} or in PATH."
+        if command -v "$APP_NAME" &>/dev/null; then
+            bin="$(command -v "$APP_NAME")"
+        else
+            error "${APP_NAME} not found at ${bin} or in PATH."
             return 1
         fi
-        bin="$(command -v "$APP_NAME")"
     fi
 
-    # Check --help works
     if "$bin" --help &>/dev/null; then
         success "  --help:    OK"
     else
@@ -241,21 +242,18 @@ verify_install() {
         return 1
     fi
 
-    # Check --version
     local ver
     ver="$("$bin" --version 2>/dev/null || echo '')"
     if [ -n "$ver" ]; then
         success "  version:   ${ver}"
     fi
 
-    # Check config subcommand
     if "$bin" config show &>/dev/null; then
         success "  config:    OK"
     else
-        warn "  config show returned non-zero (config may not exist yet — that's OK)"
+        warn "  config show returned non-zero (config may not exist yet — OK on first install)"
     fi
 
-    # Show binary location and config path
     success "  binary:    ${bin}"
 
     echo ""
@@ -282,7 +280,6 @@ main() {
     fi
 
     ensure_rust
-    build_binary
     install_binary
     check_path
     verify_install
