@@ -184,6 +184,12 @@ impl ConversationRuntime {
         self.history.clear();
     }
 
+    /// Definitions of all registered tools (for status display).
+    #[must_use]
+    pub fn tool_definitions(&self) -> Vec<code_buddy_transport::ToolDefinition> {
+        self.tools.definitions()
+    }
+
     /// Estimated token count for the current history (heuristic: 1 token ≈ 4 chars).
     ///
     /// Used for compaction decisions. Not a billing-accurate count.

@@ -1,295 +1,198 @@
 #!/usr/bin/env bash
 # install.sh — Code Buddy installer
 #
-# Usage:
-#   bash install.sh
-#   bash install.sh --prefix /usr/local
-#   bash install.sh --check      # verify existing install only
-#   bash install.sh --help
+# Downloads a pre-built binary from GitHub Releases.
+# Falls back to building from source with --source.
+#
+# Quick install (Linux / macOS):
+#   curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh
+#
+# Options:
+#   --prefix DIR   Install root (binary → DIR/bin). Default: ~/.local
+#   --source       Build from source with cargo (requires Rust)
+#   --check        Verify existing install only
+#   -h, --help     Show this help
 
 set -euo pipefail
 
-# ── Constants ──────────────────────────────────────────────────────────────────
-
 APP_NAME="code-buddy"
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="simpletoolsindia/code-buddy"
 DEFAULT_PREFIX="${HOME}/.local"
+GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
 
-# ── Colour helpers ─────────────────────────────────────────────────────────────
-
+# ── Colours ────────────────────────────────────────────────────────────────────
 if [ -t 1 ] && command -v tput &>/dev/null && tput colors &>/dev/null && [ "$(tput colors)" -ge 8 ]; then
-    GREEN=$(tput setaf 2)
-    YELLOW=$(tput setaf 3)
-    RED=$(tput setaf 1)
-    BOLD=$(tput bold)
-    RESET=$(tput sgr0)
+    GREEN=$(tput setaf 2) YELLOW=$(tput setaf 3) RED=$(tput setaf 1)
+    CYAN=$(tput setaf 6) BOLD=$(tput bold) RESET=$(tput sgr0)
 else
-    GREEN="" YELLOW="" RED="" BOLD="" RESET=""
+    GREEN="" YELLOW="" RED="" CYAN="" BOLD="" RESET=""
 fi
 
-info()    { echo "${BOLD}${GREEN}==> ${RESET}${BOLD}$*${RESET}"; }
-warn()    { echo "${BOLD}${YELLOW}[warn]${RESET} $*" >&2; }
-error()   { echo "${BOLD}${RED}[error]${RESET} $*" >&2; }
-success() { echo "${BOLD}${GREEN}[ok]${RESET}   $*"; }
-fail()    { error "$*"; exit 1; }
+info()    { echo "${BOLD}${CYAN}  ✻  ${RESET}${BOLD}$*${RESET}"; }
+warn()    { echo "${BOLD}${YELLOW}  ⚠  ${RESET} $*" >&2; }
+success() { echo "${BOLD}${GREEN}  ✔  ${RESET} $*"; }
+fail()    { echo "${BOLD}${RED}  ✘  ${RESET} $*" >&2; exit 1; }
 
-# ── Argument parsing ──────────────────────────────────────────────────────────
-
-INSTALL_PREFIX=""
+# ── Args ───────────────────────────────────────────────────────────────────────
+INSTALL_PREFIX="${DEFAULT_PREFIX}"
 CHECK_ONLY=false
+BUILD_FROM_SOURCE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --check)
-            CHECK_ONLY=true
-            shift
-            ;;
-        --prefix)
-            if [[ $# -lt 2 ]]; then
-                fail "--prefix requires an argument"
-            fi
-            INSTALL_PREFIX="$2"
-            shift 2
-            ;;
-        --prefix=*)
-            INSTALL_PREFIX="${1#--prefix=}"
-            shift
-            ;;
+        --check)    CHECK_ONLY=true; shift ;;
+        --source)   BUILD_FROM_SOURCE=true; shift ;;
+        --prefix)   [[ $# -lt 2 ]] && fail "--prefix requires an argument"
+                    INSTALL_PREFIX="$2"; shift 2 ;;
+        --prefix=*) INSTALL_PREFIX="${1#--prefix=}"; shift ;;
         -h|--help)
-            cat <<EOF
-Usage: $0 [OPTIONS]
+            cat <<'EOF'
+Usage: bash install.sh [OPTIONS]
 
 Options:
-  --prefix DIR    Install root (binary goes to DIR/bin). Default: ~/.local
-  --check         Verify existing installation without building
-  -h, --help      Show this help message
+  --prefix DIR   Install root (binary → DIR/bin). Default: ~/.local
+  --source       Build from source with cargo (requires Rust toolchain)
+  --check        Verify existing installation without making changes
+  -h, --help     Show this help
 
-The installer uses \`cargo install --path crates/cli --root <prefix>\` so the
-binary is placed at <prefix>/bin/code-buddy (default: ~/.local/bin/code-buddy).
+One-line install:
+  curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh
 EOF
-            exit 0
-            ;;
-        *)
-            warn "Unknown argument: $1 (ignored)"
-            shift
-            ;;
+            exit 0 ;;
+        *) warn "Unknown argument: $1 (ignored)"; shift ;;
     esac
 done
 
-INSTALL_PREFIX="${INSTALL_PREFIX:-$DEFAULT_PREFIX}"
 INSTALL_BIN_DIR="${INSTALL_PREFIX}/bin"
+BINARY="${INSTALL_BIN_DIR}/${APP_NAME}"
 
-# ── Platform detection ────────────────────────────────────────────────────────
+# ── Check-only ────────────────────────────────────────────────────────────────
+if "${CHECK_ONLY}"; then
+    if command -v "${APP_NAME}" &>/dev/null; then
+        success "${APP_NAME} found: $(command -v "${APP_NAME}")"
+        "${APP_NAME}" --version || true
+        exit 0
+    else
+        fail "${APP_NAME} not found in PATH."
+    fi
+fi
 
-detect_platform() {
+# ── Platform detection ─────────────────────────────────────────────────────────
+detect_target() {
     local os arch
     os="$(uname -s)"
     arch="$(uname -m)"
-
-    case "$os" in
-        Linux)  PLATFORM="linux" ;;
-        Darwin) PLATFORM="macos" ;;
-        *) fail "Unsupported operating system: $os (only Linux and macOS are supported)" ;;
+    case "${os}" in
+        Linux*)
+            case "${arch}" in
+                x86_64)          echo "x86_64-unknown-linux-musl" ;;
+                aarch64|arm64)   echo "aarch64-unknown-linux-musl" ;;
+                *) fail "Unsupported Linux arch '${arch}'. Use --source to build." ;;
+            esac ;;
+        Darwin*)
+            case "${arch}" in
+                x86_64) echo "x86_64-apple-darwin" ;;
+                arm64)  echo "aarch64-apple-darwin" ;;
+                *) fail "Unsupported macOS arch '${arch}'. Use --source to build." ;;
+            esac ;;
+        *) fail "Unsupported OS '${os}'. Use --source to build." ;;
     esac
-
-    case "$arch" in
-        x86_64)        ARCH="x86_64" ;;
-        aarch64|arm64) ARCH="aarch64" ;;
-        *) warn "Unusual architecture: $arch — attempting build anyway"; ARCH="$arch" ;;
-    esac
-
-    info "Platform: ${PLATFORM} / ${ARCH}"
 }
 
-# ── Rust toolchain ────────────────────────────────────────────────────────────
-
-ensure_rust() {
-    if command -v cargo &>/dev/null; then
-        success "Rust toolchain found: $(rustc --version 2>/dev/null || echo 'unknown')"
-        return 0
-    fi
-
-    warn "Rust toolchain not found — installing via rustup..."
-
-    if ! command -v curl &>/dev/null && ! command -v wget &>/dev/null; then
-        fail "Neither curl nor wget found. Please install one of them and retry."
-    fi
-
-    local rustup_init
-    rustup_init="$(mktemp /tmp/rustup-init.XXXXXX)"
-    # Ensure temp file is removed on exit
-    # shellcheck disable=SC2064
-    trap "rm -f '$rustup_init'" EXIT
-
-    if command -v curl &>/dev/null; then
-        curl -fsSL "https://sh.rustup.rs" -o "$rustup_init"
-    else
-        wget -qO "$rustup_init" "https://sh.rustup.rs"
-    fi
-
-    chmod +x "$rustup_init"
-    "$rustup_init" -y --no-modify-path --profile minimal --default-toolchain stable
-
-    # Source cargo env so subsequent steps find cargo
-    if [ -f "${HOME}/.cargo/env" ]; then
-        # shellcheck source=/dev/null
-        source "${HOME}/.cargo/env"
-    fi
-
-    # Fallback: add to PATH directly
+# ── Source build ───────────────────────────────────────────────────────────────
+if "${BUILD_FROM_SOURCE}"; then
+    info "Building from source (requires Rust)…"
     if ! command -v cargo &>/dev/null; then
+        info "Installing Rust via rustup…"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --no-modify-path
         export PATH="${HOME}/.cargo/bin:${PATH}"
     fi
-
-    if command -v cargo &>/dev/null; then
-        success "Rust installed: $(rustc --version)"
+    if [[ -f "Cargo.toml" ]] && grep -q '"code-buddy"' Cargo.toml 2>/dev/null; then
+        cargo install --path crates/cli --root "${INSTALL_PREFIX}" --locked
     else
-        fail "rustup install appeared to succeed but cargo is still not in PATH."
+        cargo install --git "https://github.com/${REPO}" \
+            --bin code-buddy --root "${INSTALL_PREFIX}" --locked
+    fi
+    success "${APP_NAME} built and installed to ${BINARY}"
+    path_hint "${INSTALL_BIN_DIR}"
+    exit 0
+fi
+
+# ── Binary download ────────────────────────────────────────────────────────────
+TARGET="$(detect_target)"
+info "Platform: ${TARGET}"
+info "Fetching latest release…"
+
+fetch() {
+    if command -v curl &>/dev/null; then
+        curl -fsSL "$1"
+    elif command -v wget &>/dev/null; then
+        wget -qO- "$1"
+    else
+        fail "curl or wget is required."
     fi
 }
 
-# ── Build & install ───────────────────────────────────────────────────────────
+LATEST_JSON="$(fetch "${GITHUB_API}" 2>/dev/null || true)"
+TAG="$(echo "${LATEST_JSON}" | grep '"tag_name"' | head -1 \
+    | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+[[ -z "${TAG}" ]] && fail "Could not determine latest release. Use --source to build from source."
 
-install_binary() {
-    info "Installing ${APP_NAME} to ${INSTALL_BIN_DIR}..."
+info "Installing ${APP_NAME} ${TAG}…"
 
-    if [ ! -f "${REPO_DIR}/Cargo.toml" ]; then
-        fail "Cargo.toml not found in ${REPO_DIR}. Run this script from the repository root."
-    fi
+ARCHIVE="${APP_NAME}-${TAG}-${TARGET}.tar.gz"
+BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 
-    # Verify the CLI crate exists — more reliable than grepping the workspace manifest.
-    if [ ! -f "${REPO_DIR}/crates/cli/Cargo.toml" ]; then
-        fail "crates/cli/Cargo.toml not found. Is ${REPO_DIR} the code-buddy repository root?"
-    fi
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "${TMPDIR}"' EXIT
 
-    # Show existing version if upgrading
-    local dest="${INSTALL_BIN_DIR}/${APP_NAME}"
-    if [ -f "$dest" ]; then
-        local old_ver
-        old_ver="$("$dest" --version 2>/dev/null || echo 'unknown')"
-        info "Upgrading existing install (was: ${old_ver})"
-    fi
+if command -v curl &>/dev/null; then
+    curl -fsSL -o "${TMPDIR}/${ARCHIVE}" "${BASE_URL}/${ARCHIVE}" \
+        || fail "Download failed. Try --source."
+    curl -fsSL -o "${TMPDIR}/checksums.txt" "${BASE_URL}/checksums.txt" 2>/dev/null || true
+else
+    wget -qO "${TMPDIR}/${ARCHIVE}" "${BASE_URL}/${ARCHIVE}" \
+        || fail "Download failed. Try --source."
+    wget -qO "${TMPDIR}/checksums.txt" "${BASE_URL}/checksums.txt" 2>/dev/null || true
+fi
 
-    # `cargo install --path . --root <prefix>` compiles a release binary and
-    # places it at <prefix>/bin/code-buddy — exactly what the task requires.
+# Verify checksum when available.
+if [[ -s "${TMPDIR}/checksums.txt" ]]; then
+    info "Verifying checksum…"
     (
-        cd "$REPO_DIR"
-        cargo install \
-            --path "crates/cli" \
-            --root "$INSTALL_PREFIX" \
-            --bin "$APP_NAME" \
-            2>&1
-    ) || fail "cargo install failed. Check the output above for errors."
-
-    if [ ! -f "$dest" ]; then
-        fail "Expected binary at ${dest} after install but it was not found."
-    fi
-
-    success "Installed to ${dest}"
-}
-
-# ── PATH guidance ─────────────────────────────────────────────────────────────
-
-check_path() {
-    if command -v "$APP_NAME" &>/dev/null; then
-        success "${APP_NAME} is in PATH at: $(command -v "$APP_NAME")"
-        return 0
-    fi
-
-    warn "${INSTALL_BIN_DIR} is not in your PATH."
-    echo ""
-    echo "  Add it to your shell profile:"
-    echo ""
-
-    local shell_profile
-    case "${SHELL:-bash}" in
-        */zsh)  shell_profile="~/.zshrc" ;;
-        */fish) shell_profile="~/.config/fish/config.fish" ;;
-        *)      shell_profile="~/.bashrc" ;;
-    esac
-
-    if [[ "${SHELL:-bash}" == */fish ]]; then
-        echo "    ${YELLOW}fish_add_path ${INSTALL_BIN_DIR}${RESET}"
-    else
-        echo "    ${YELLOW}echo 'export PATH=\"${INSTALL_BIN_DIR}:\$PATH\"' >> ${shell_profile}${RESET}"
-        echo "    ${YELLOW}source ${shell_profile}${RESET}"
-    fi
-
-    echo ""
-    echo "  Or run directly:  ${YELLOW}${INSTALL_BIN_DIR}/${APP_NAME} --help${RESET}"
-    echo ""
-}
-
-# ── Verification ──────────────────────────────────────────────────────────────
-
-verify_install() {
-    info "Verifying installation..."
-
-    local bin="${INSTALL_BIN_DIR}/${APP_NAME}"
-
-    if [ ! -f "$bin" ]; then
-        if command -v "$APP_NAME" &>/dev/null; then
-            bin="$(command -v "$APP_NAME")"
+        cd "${TMPDIR}"
+        if command -v sha256sum &>/dev/null; then
+            grep "${ARCHIVE}" checksums.txt | sha256sum --check --status \
+                || fail "Checksum mismatch — download may be corrupt."
+        elif command -v shasum &>/dev/null; then
+            grep "${ARCHIVE}" checksums.txt | shasum -a 256 --check --status \
+                || fail "Checksum mismatch — download may be corrupt."
         else
-            error "${APP_NAME} not found at ${bin} or in PATH."
-            return 1
+            warn "sha256sum/shasum not found — skipping checksum verification."
         fi
+    )
+    success "Checksum OK."
+fi
+
+mkdir -p "${INSTALL_BIN_DIR}"
+tar -xzf "${TMPDIR}/${ARCHIVE}" -C "${TMPDIR}"
+install -m 755 "${TMPDIR}/${APP_NAME}" "${BINARY}"
+success "${APP_NAME} ${TAG} → ${BINARY}"
+
+# ── PATH hint ──────────────────────────────────────────────────────────────────
+path_hint() {
+    local dir="$1"
+    if ! echo ":${PATH}:" | grep -q ":${dir}:"; then
+        echo ""
+        warn "${dir} is not in your PATH. Add it:"
+        echo "  ${BOLD}echo 'export PATH=\"${dir}:\$PATH\"' >> ~/.bashrc && source ~/.bashrc${RESET}"
+        echo "  (or ~/.zshrc for zsh)"
+        echo ""
     fi
-
-    if "$bin" --help &>/dev/null; then
-        success "  --help:    OK"
-    else
-        error "  --help failed (exit code $?)"
-        return 1
-    fi
-
-    local ver
-    ver="$("$bin" --version 2>/dev/null || echo '')"
-    if [ -n "$ver" ]; then
-        success "  version:   ${ver}"
-    fi
-
-    if "$bin" config show &>/dev/null; then
-        success "  config:    OK"
-    else
-        warn "  config show returned non-zero (config may not exist yet — OK on first install)"
-    fi
-
-    success "  binary:    ${bin}"
-
-    echo ""
-    echo "  ${BOLD}Quick start:${RESET}"
-    echo "    ${APP_NAME} config set provider lm-studio"
-    echo "    ${APP_NAME} config set model mistral-7b-instruct"
-    echo "    ${APP_NAME} run"
-    echo ""
 }
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-
-main() {
-    echo ""
-    echo "  ${BOLD}Code Buddy Installer${RESET}"
-    echo "  ─────────────────────────────────────────"
-    echo ""
-
-    detect_platform
-
-    if $CHECK_ONLY; then
-        verify_install
-        exit $?
-    fi
-
-    ensure_rust
-    install_binary
-    check_path
-    verify_install
-
-    echo "${BOLD}${GREEN}Installation complete!${RESET}"
-    echo ""
-    echo "  Run ${BOLD}${APP_NAME} --help${RESET} to get started."
-    echo "  Run ${BOLD}${APP_NAME} install${RESET} at any time to verify your setup."
-    echo ""
-}
-
-main "$@"
+path_hint "${INSTALL_BIN_DIR}"
+echo ""
+info "Run ${BOLD}${APP_NAME}${RESET} to start! The setup wizard will guide you on first launch."
+echo ""

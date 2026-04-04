@@ -13,6 +13,14 @@ use args::{Cli, OutputFormat, Subcommand};
 use code_buddy_config::AppConfig;
 use code_buddy_telemetry::{LogFormat, TelemetryConfig};
 
+/// Returns `true` when no config file exists yet (first-run detection).
+fn is_first_run() -> bool {
+    let config_path = dirs::config_dir()
+        .map(|d| d.join("code-buddy").join("config.toml"))
+        .unwrap_or_default();
+    !config_path.exists()
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -63,6 +71,34 @@ async fn main() {
         config.model = Some(model.clone());
     }
 
+    // On first run (no config file), launch the setup wizard automatically
+    // before entering the REPL.
+    if matches!(cli.subcommand, None) && is_first_run() {
+        use console::style;
+        println!(
+            "\n  {} Welcome to Code Buddy! Let's get you set up first.\n",
+            style("✻").magenta().bold()
+        );
+        let code = commands::setup::run(Default::default()).await;
+        if code != 0 {
+            process::exit(code);
+        }
+        // Reload config after setup wizard writes it.
+        config = match AppConfig::load() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error reloading configuration: {e}");
+                process::exit(1);
+            }
+        };
+        if debug {
+            config.debug = true;
+        }
+        if no_color {
+            config.no_color = true;
+        }
+    }
+
     // Dispatch subcommand.
     let exit_code = match cli.subcommand {
         Some(Subcommand::Ask(args)) => {
@@ -76,6 +112,9 @@ async fn main() {
         }
         Some(Subcommand::Install(args)) => {
             commands::install::run(&config, args).await
+        }
+        Some(Subcommand::Setup(args)) => {
+            commands::setup::run(args).await
         }
         None => {
             // No subcommand: default to interactive REPL.

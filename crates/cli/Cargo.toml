@@ -27,6 +27,10 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 dirs.workspace = true
+dialoguer.workspace = true
+indicatif.workspace = true
+console.workspace = true
+reqwest.workspace = true
 
 [lints]
 workspace = true

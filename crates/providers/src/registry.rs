@@ -34,6 +34,12 @@ impl ProviderRegistry {
                 let base_url = endpoint.map(str::to_string);
                 Box::new(LmStudioProvider::new(base_url, timeout, max_retries))
             }
+            "ollama" => {
+                let base_url = endpoint
+                    .map(|u| format!("{u}/v1"))
+                    .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+                Box::new(CustomLocalProvider::new("Ollama", base_url, String::new(), timeout, max_retries))
+            }
             "openrouter" => {
                 let api_key = config
                     .api_key
@@ -99,7 +105,7 @@ impl ProviderRegistry {
                 return Err(TransportError::Config {
                     detail: format!(
                         "unknown provider '{other}'. \
-                         Valid: lm-studio, openrouter, nvidia, openai, custom"
+                         Valid: lm-studio, ollama, openrouter, nvidia, openai, custom"
                     ),
                 });
             }

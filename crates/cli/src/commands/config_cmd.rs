@@ -30,7 +30,7 @@ pub async fn run(mut config: AppConfig, args: ConfigArgs) -> i32 {
                         return 1;
                     }
                     match config.save() {
-                        Ok(()) => {
+                        Ok(_) => {
                             println!("Set {field} = {value}");
                             0
                         }

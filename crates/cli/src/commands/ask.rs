@@ -42,6 +42,11 @@ pub async fn run(config: &AppConfig, args: AskArgs) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let mut tools = ToolRegistry::new();
     tools.register_builtin(cwd);
+    tools.register_web_tools(
+        config.brave_api_key.clone(),
+        config.serpapi_key.clone(),
+        config.firecrawl_api_key.clone(),
+    );
 
     let rt_config = RuntimeConfig {
         model: config.model.clone().unwrap_or_else(|| "local-model".to_string()),

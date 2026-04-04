@@ -10,6 +10,11 @@ pub mod fs;
 pub mod parser;
 pub mod path_utils;
 pub mod search;
+pub mod web_fetch;
+pub mod web_search;
+
+pub use web_fetch::WebFetchTool;
+pub use web_search::{SearchBackend, WebSearchTool};
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -77,7 +82,7 @@ impl ToolRegistry {
         self.tools.insert(tool.name().to_string(), Box::new(tool));
     }
 
-    /// Register all six built-in tools scoped to `cwd`.
+    /// Register all six built-in file/shell tools scoped to `cwd`.
     pub fn register_builtin(&mut self, cwd: std::path::PathBuf) {
         self.register(bash::BashTool::new(cwd.clone()));
         self.register(fs::ReadFileTool::new(cwd.clone()));
@@ -85,6 +90,31 @@ impl ToolRegistry {
         self.register(fs::EditFileTool::new(cwd.clone()));
         self.register(search::GlobSearchTool::new(cwd.clone()));
         self.register(search::GrepSearchTool::new(cwd));
+    }
+
+    /// Register web search and fetch tools from environment / explicit keys.
+    ///
+    /// `web_search` is only registered when at least one API key is configured.
+    /// `web_fetch` is always registered (works without any key, Firecrawl is optional).
+    pub fn register_web_tools(
+        &mut self,
+        brave_key: Option<String>,
+        serpapi_key: Option<String>,
+        firecrawl_key: Option<String>,
+    ) {
+        let search_tool = WebSearchTool::from_env(brave_key, serpapi_key);
+        if search_tool.is_configured() {
+            self.register(search_tool);
+        }
+        self.register(WebFetchTool::new(firecrawl_key));
+    }
+
+    /// Tool names currently registered.
+    #[must_use]
+    pub fn tool_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.tools.keys().cloned().collect();
+        names.sort();
+        names
     }
 
     /// Returns `true` if no tools are registered.

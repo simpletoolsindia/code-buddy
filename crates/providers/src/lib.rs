@@ -13,6 +13,7 @@
 
 pub mod adapters;
 pub mod mock;
+pub mod model_list;
 pub mod openai_compat;
 pub mod registry;
 

@@ -67,6 +67,21 @@ pub struct AppConfig {
 
     /// Show verbose request/response diagnostics.
     pub verbose: bool,
+
+    /// Brave Search API key for the `web_search` tool.
+    /// Environment override: `BRAVE_SEARCH_API_KEY`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brave_api_key: Option<String>,
+
+    /// SerpAPI key (fallback for web search when Brave key is absent).
+    /// Environment override: `SERPAPI_KEY`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serpapi_key: Option<String>,
+
+    /// Firecrawl API key for high-quality `web_fetch` output.
+    /// Environment override: `FIRECRAWL_API_KEY`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub firecrawl_api_key: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -85,6 +100,9 @@ impl Default for AppConfig {
             system_prompt: None,
             no_color: false,
             verbose: false,
+            brave_api_key: None,
+            serpapi_key: None,
+            firecrawl_api_key: None,
         }
     }
 }
@@ -141,9 +159,10 @@ impl AppConfig {
     ///
     /// # Errors
     /// Returns [`ConfigError`] if the directory cannot be created or the file cannot be written.
-    pub fn save(&self) -> Result<(), ConfigError> {
+    pub fn save(&self) -> Result<std::path::PathBuf, ConfigError> {
         let path = config_file_path()?;
-        self.save_to(&path)
+        self.save_to(&path)?;
+        Ok(path)
     }
 
     /// Save the config to a specific file path.
@@ -229,6 +248,21 @@ impl AppConfig {
         if let Ok(val) = std::env::var("CODE_BUDDY_SYSTEM_PROMPT") {
             if !val.is_empty() {
                 self.system_prompt = Some(val);
+            }
+        }
+        if let Ok(val) = std::env::var("BRAVE_SEARCH_API_KEY") {
+            if !val.is_empty() {
+                self.brave_api_key = Some(val);
+            }
+        }
+        if let Ok(val) = std::env::var("SERPAPI_KEY") {
+            if !val.is_empty() {
+                self.serpapi_key = Some(val);
+            }
+        }
+        if let Ok(val) = std::env::var("FIRECRAWL_API_KEY") {
+            if !val.is_empty() {
+                self.firecrawl_api_key = Some(val);
             }
         }
     }
@@ -359,13 +393,22 @@ impl AppConfig {
             "system_prompt" => {
                 self.system_prompt = if value.is_empty() { None } else { Some(value.to_string()) };
             }
+            "brave_api_key" => {
+                self.brave_api_key = if value.is_empty() { None } else { Some(value.to_string()) };
+            }
+            "serpapi_key" => {
+                self.serpapi_key = if value.is_empty() { None } else { Some(value.to_string()) };
+            }
+            "firecrawl_api_key" => {
+                self.firecrawl_api_key = if value.is_empty() { None } else { Some(value.to_string()) };
+            }
             _ => {
                 return Err(ConfigError::Validation {
                     field: field.to_string(),
                     reason: format!(
                         "unknown field '{field}'. Valid fields: provider, model, endpoint, api_key, \
                          timeout_seconds, max_retries, debug, streaming, no_color, max_tokens, \
-                         temperature, system_prompt"
+                         temperature, system_prompt, brave_api_key, serpapi_key, firecrawl_api_key"
                     ),
                 });
             }
@@ -389,6 +432,9 @@ impl AppConfig {
             "max_tokens" => self.max_tokens.map(|v| v.to_string()),
             "temperature" => self.temperature.map(|v| format!("{v:.2}")),
             "system_prompt" => self.system_prompt.clone(),
+            "brave_api_key" => self.brave_api_key.as_deref().map(|_| "<redacted>".to_string()),
+            "serpapi_key" => self.serpapi_key.as_deref().map(|_| "<redacted>".to_string()),
+            "firecrawl_api_key" => self.firecrawl_api_key.as_deref().map(|_| "<redacted>".to_string()),
             _ => None,
         }
     }
@@ -403,11 +449,11 @@ fn config_file_path() -> Result<PathBuf, ConfigError> {
 /// Validate the provider name.
 fn validate_provider(provider: &str) -> Result<(), ConfigError> {
     match provider {
-        "lm-studio" | "openrouter" | "nvidia" | "openai" | "custom" => Ok(()),
+        "lm-studio" | "ollama" | "openrouter" | "nvidia" | "openai" | "custom" => Ok(()),
         _ => Err(ConfigError::Validation {
             field: "provider".to_string(),
             reason: format!(
-                "unknown provider '{provider}'. Valid: lm-studio, openrouter, nvidia, openai, custom"
+                "unknown provider '{provider}'. Valid: lm-studio, ollama, openrouter, nvidia, openai, custom"
             ),
         }),
     }

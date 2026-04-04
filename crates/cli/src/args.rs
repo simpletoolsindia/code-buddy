@@ -61,6 +61,9 @@ pub enum Subcommand {
 
     /// Post-install setup and verification.
     Install(InstallArgs),
+
+    /// Interactive provider/model setup wizard.
+    Setup(SetupArgs),
 }
 
 /// Arguments for the `ask` subcommand.
@@ -124,6 +127,14 @@ pub struct InstallArgs {
     /// Only verify existing installation without making changes.
     #[arg(long)]
     pub verify_only: bool,
+}
+
+/// Arguments for the `setup` subcommand.
+#[derive(Debug, Args, Default)]
+pub struct SetupArgs {
+    /// Skip to a specific step (1=provider, 2=model, 3=web-search).
+    #[arg(long)]
+    pub step: Option<u8>,
 }
 
 #[cfg(test)]
