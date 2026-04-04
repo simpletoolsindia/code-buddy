@@ -3,26 +3,29 @@
 //! # Confinement policy
 //!
 //! Before any command is executed, `validate_bash_command` performs best-effort
-//! static analysis on the command string to block obvious path escapes:
+//! static analysis on the command string to block path escapes.
 //!
-//! 1. **Relative traversal** — any command containing `../` or `/..` is
-//!    rejected.  Normal project work (build, test, lint) never needs to
-//!    navigate above the project root.
+//! ## Rules
 //!
-//! 2. **Absolute system-path access** — tokens that reference well-known
-//!    system directories (`/etc/`, `/proc/`, `/sys/`, `/dev/`, `/root/`,
-//!    `/boot/`) are rejected even when spelled with a trailing slash omitted.
+//! 1. **Relative traversal** (`../`) — rejected before any disk access.
 //!
-//! 3. **Working directory pinning** — the process is started with `current_dir`
-//!    set to `cwd`, so every relative path resolves within the project tree.
+//! 2. **Absolute path confinement** — all absolute-path tokens found in the
+//!    command string (sequences starting with `/` at a word boundary) must be
+//!    prefixed by the canonicalized project root.  This covers `/etc/passwd`,
+//!    `/home/other/secrets`, `/var/log/syslog`, `/tmp/attacker/file`, etc.
+//!    without relying on an ever-incomplete denylist.
+//!
+//! 3. **Working directory pinning** — the child process is started with
+//!    `current_dir` set to `cwd`, so every relative path resolves within the
+//!    project tree.
 //!
 //! ## Known limitations
 //!
-//! Shell is Turing-complete; a sufficiently creative command can construct a
-//! path dynamically and bypass any string-level check.  For fully trusted
-//! isolation, OS-level sandboxing (seccomp, namespaces, containers) is
-//! required.  This implementation is designed to block the common LLM mistake
-//! patterns seen in practice, not to replace an OS sandbox.
+//! Shell is Turing-complete.  A command that constructs a path dynamically
+//! (e.g. `cat "/et"+"c/passwd"` or via variable expansion) bypasses string-level
+//! analysis.  For fully trusted isolation, OS-level sandboxing (seccomp,
+//! namespaces, containers) is required.  This implementation blocks the common
+//! patterns produced by LLMs operating on the filesystem.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -36,18 +39,53 @@ use crate::Tool;
 
 // ── confinement ───────────────────────────────────────────────────────────────
 
-/// Well-known system path prefixes that must never appear as path arguments.
-const BLOCKED_PREFIXES: &[&str] = &[
-    "/etc/", "/proc/", "/sys/", "/dev/", "/root/", "/boot/",
-];
+/// Bytes that may legally appear immediately before or after an absolute path
+/// token in a shell command.
+const WORD_DELIMITERS: &[u8] = b" \t\"'();|&=`\n";
 
-/// Bare system directory names (without trailing slash).
-const BLOCKED_DIRS: &[&str] = &["/etc", "/proc", "/sys", "/dev", "/root", "/boot"];
+/// Scan `command` and return all substrings that look like absolute path tokens.
+///
+/// An absolute path token is a `/`-leading sequence that starts at a
+/// whitespace/shell-delimiter boundary.  Examples that are found:
+/// - `cat /etc/passwd` → `["/etc/passwd"]`
+/// - `echo "hello" && cat /var/log/file` → `["/var/log/file"]`
+/// - `cargo build` → `[]`  (no absolute paths)
+///
+/// This is deliberately conservative: it may miss dynamically constructed paths
+/// (those bypasses require OS-level sandboxing).
+fn absolute_path_tokens(command: &str) -> Vec<&str> {
+    let bytes = command.as_bytes();
+    let len = bytes.len();
+    let mut tokens = Vec::new();
+    let mut i = 0usize;
+
+    while i < len {
+        if bytes[i] == b'/' {
+            let at_boundary = i == 0 || WORD_DELIMITERS.contains(&bytes[i - 1]);
+            if at_boundary {
+                // Find the end of this token (next delimiter or end of string).
+                let start = i;
+                i += 1;
+                while i < len && !WORD_DELIMITERS.contains(&bytes[i]) {
+                    i += 1;
+                }
+                // Only keep tokens longer than just "/" (bare slash is not a useful check).
+                if i > start + 1 {
+                    tokens.push(&command[start..i]);
+                }
+                continue;
+            }
+        }
+        i += 1;
+    }
+
+    tokens
+}
 
 /// Validate a bash command string before execution.
 ///
 /// Returns `Ok(())` if the command passes confinement checks, or a
-/// `ToolError::PathTraversal` if it contains a known escape pattern.
+/// [`ToolError::PathTraversal`] if it contains a path that escapes `cwd`.
 ///
 /// See the module-level documentation for the full policy description.
 pub(crate) fn validate_bash_command(
@@ -55,8 +93,6 @@ pub(crate) fn validate_bash_command(
     command: &str,
     cwd: &Path,
 ) -> Result<(), ToolError> {
-    let _cwd = cwd; // reserved for future absolute-path prefix checks
-
     // Rule 1 — relative traversal.
     if command.contains("../")
         || command.contains("/..")
@@ -69,60 +105,30 @@ pub(crate) fn validate_bash_command(
         });
     }
 
-    // Rule 2a — absolute prefix match (includes trailing slash).
-    for prefix in BLOCKED_PREFIXES {
-        if command.contains(prefix) {
-            return Err(ToolError::PathTraversal {
-                tool: tool.to_string(),
-                path: format!("(system path {prefix} in command)"),
-            });
+    // Rule 2 — positive absolute-path confinement.
+    //
+    // Canonicalize cwd first so we compare against the true filesystem path
+    // (e.g. /private/var/... on macOS rather than /var/...).
+    let canon_cwd = match cwd.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            // If cwd cannot be canonicalized (e.g. in unit tests with a
+            // non-existent directory) fall back to the provided path.
+            cwd.to_path_buf()
         }
-    }
+    };
+    let cwd_prefix = canon_cwd.to_string_lossy();
 
-    // Rule 2b — bare directory names as path-like tokens.
-    for dir in BLOCKED_DIRS {
-        if token_present(command, dir) {
+    for token in absolute_path_tokens(command) {
+        if !token.starts_with(cwd_prefix.as_ref()) {
             return Err(ToolError::PathTraversal {
                 tool: tool.to_string(),
-                path: dir.to_string(),
+                path: token.to_string(),
             });
         }
     }
 
     Ok(())
-}
-
-/// Return `true` when `needle` appears in `haystack` as a whitespace- or
-/// quote-delimited token (i.e., not as an interior substring of a longer path).
-///
-/// For example, `token_present("ls /etc", "/etc")` is `true`, but
-/// `token_present("cat /etcetera/file", "/etc")` is `false` (the token is
-/// followed by `e`, not a delimiter).
-fn token_present(haystack: &str, needle: &str) -> bool {
-    let bytes = haystack.as_bytes();
-    let needle_bytes = needle.as_bytes();
-    let nlen = needle_bytes.len();
-
-    let mut i = 0usize;
-    while i + nlen <= bytes.len() {
-        if bytes[i..i + nlen] == *needle_bytes {
-            let before = if i == 0 { b' ' } else { bytes[i - 1] };
-            let after = if i + nlen >= bytes.len() {
-                b' '
-            } else {
-                bytes[i + nlen]
-            };
-            let before_ok =
-                matches!(before, b' ' | b'\t' | b'"' | b'\'' | b'(' | b'`' | b';' | b'|' | b'&');
-            let after_ok =
-                matches!(after, b' ' | b'\t' | b'"' | b'\'' | b')' | b'`' | b';' | b'|' | b'&');
-            if before_ok && after_ok {
-                return true;
-            }
-        }
-        i += 1;
-    }
-    false
 }
 
 // ── tool ──────────────────────────────────────────────────────────────────────
@@ -149,8 +155,8 @@ impl Tool for BashTool {
     fn description(&self) -> &str {
         "Execute a shell command in the project directory and return its output. \
          Returns combined stdout and stderr. Commands run with a 30-second timeout. \
-         Commands that access paths outside the project root (via ../ or system \
-         directories) are rejected."
+         Absolute paths must be within the project root; relative traversal (../) \
+         is rejected."
     }
 
     fn input_schema(&self) -> Value {
@@ -195,8 +201,8 @@ impl Tool for BashTool {
             .min(30_000);
 
         // Bug fix §1: Each invocation gets an isolated temp directory.
-        // Two concurrent executions can never write to the same `sandbox_binary`
-        // path — each sees its own $TMPDIR.
+        // Two concurrent executions can never write to the same path —
+        // each sees its own $TMPDIR.
         let tmp_dir = tempfile::Builder::new()
             .prefix(&format!("cb_bash_{}_", uuid::Uuid::new_v4().simple()))
             .tempdir()
@@ -332,10 +338,10 @@ mod tests {
         );
     }
 
-    /// An absolute path directly to `/etc/passwd` must be rejected.
+    /// An absolute path to `/etc/passwd` must be rejected.
     #[tokio::test]
     async fn bash_absolute_etc_passwd_is_rejected() {
-        let t = tool();
+        let (t, _dir) = tmp_tool();
         let err = t
             .execute(json!({ "command": "cat /etc/passwd" }))
             .await
@@ -346,10 +352,10 @@ mod tests {
         );
     }
 
-    /// Access to `/proc` (system info) must be rejected.
+    /// Access to `/proc` must be rejected.
     #[tokio::test]
     async fn bash_proc_access_is_rejected() {
-        let t = tool();
+        let (t, _dir) = tmp_tool();
         let err = t
             .execute(json!({ "command": "cat /proc/self/environ" }))
             .await
@@ -357,21 +363,49 @@ mod tests {
         assert!(matches!(err, ToolError::PathTraversal { .. }));
     }
 
-    /// `ls /etc` (without trailing slash) must also be rejected.
+    /// Absolute path to `/home/other` (not under cwd) must be rejected.
     #[tokio::test]
-    async fn bash_bare_etc_token_is_rejected() {
-        let t = tool();
+    async fn bash_home_outside_cwd_is_rejected() {
+        let (t, _dir) = tmp_tool();
         let err = t
-            .execute(json!({ "command": "ls /etc" }))
+            .execute(json!({ "command": "cat /home/attacker/secrets.txt" }))
             .await
             .unwrap_err();
         assert!(
             matches!(err, ToolError::PathTraversal { .. }),
-            "expected PathTraversal for bare /etc token, got {err:?}"
+            "expected PathTraversal for /home outside cwd, got {err:?}"
         );
     }
 
-    /// Normal project commands must NOT be blocked.
+    /// Absolute path to `/var/log/syslog` (not under cwd) must be rejected.
+    #[tokio::test]
+    async fn bash_var_log_is_rejected() {
+        let (t, _dir) = tmp_tool();
+        let err = t
+            .execute(json!({ "command": "tail /var/log/syslog" }))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ToolError::PathTraversal { .. }),
+            "expected PathTraversal for /var outside cwd, got {err:?}"
+        );
+    }
+
+    /// Absolute path to `/tmp/outside/file` (not under cwd) must be rejected.
+    #[tokio::test]
+    async fn bash_tmp_outside_cwd_is_rejected() {
+        let (t, _dir) = tmp_tool();
+        let err = t
+            .execute(json!({ "command": "cat /tmp/attacker/secrets" }))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ToolError::PathTraversal { .. }),
+            "expected PathTraversal for /tmp outside cwd, got {err:?}"
+        );
+    }
+
+    /// Normal project commands (no absolute paths) must NOT be blocked.
     #[tokio::test]
     async fn bash_normal_commands_are_allowed() {
         let (t, _dir) = tmp_tool();
@@ -380,59 +414,50 @@ mod tests {
         t.execute(json!({ "command": "ls ." })).await.unwrap();
     }
 
-    /// A path that contains `/etc` as a substring of a longer component must
-    /// NOT be blocked (e.g. `src/etcetera/file.txt`).
-    #[test]
-    fn bash_etcetera_subpath_is_not_blocked() {
-        let cwd = PathBuf::from("/tmp");
-        // "etcetera" contains "etc" but is not the /etc token.
-        validate_bash_command("bash", "cat src/etcetera/notes.txt", &cwd).unwrap();
-    }
-
-    // ── confinement — unit tests ──────────────────────────────────────────────
+    // ── confinement — unit tests on validate_bash_command ────────────────────
 
     #[test]
     fn validate_rejects_dotdot_slash() {
-        let cwd = PathBuf::from("/tmp/project");
-        let err =
-            validate_bash_command("bash", "cat ../secret.txt", &cwd).unwrap_err();
+        let cwd = std::env::current_dir().unwrap();
+        let err = validate_bash_command("bash", "cat ../secret.txt", &cwd).unwrap_err();
         assert!(matches!(err, ToolError::PathTraversal { .. }));
     }
 
     #[test]
     fn validate_rejects_slash_dotdot() {
-        let cwd = PathBuf::from("/tmp/project");
+        let cwd = std::env::current_dir().unwrap();
         let err =
-            validate_bash_command("bash", "ls /tmp/project/..", &cwd).unwrap_err();
+            validate_bash_command("bash", "ls /some/path/..", &cwd).unwrap_err();
         assert!(matches!(err, ToolError::PathTraversal { .. }));
     }
 
     #[test]
-    fn validate_rejects_etc_with_trailing_slash() {
-        let cwd = PathBuf::from("/tmp/project");
+    fn validate_rejects_absolute_etc() {
+        let dir = tempfile::tempdir().unwrap();
         let err =
-            validate_bash_command("bash", "cat /etc/shadow", &cwd).unwrap_err();
+            validate_bash_command("bash", "cat /etc/shadow", dir.path()).unwrap_err();
         assert!(matches!(err, ToolError::PathTraversal { .. }));
     }
 
     #[test]
-    fn validate_rejects_proc_with_trailing_slash() {
-        let cwd = PathBuf::from("/tmp/project");
+    fn validate_rejects_absolute_home_outside_cwd() {
+        let dir = tempfile::tempdir().unwrap();
         let err =
-            validate_bash_command("bash", "cat /proc/cpuinfo", &cwd).unwrap_err();
+            validate_bash_command("bash", "cat /home/other/file", dir.path()).unwrap_err();
         assert!(matches!(err, ToolError::PathTraversal { .. }));
     }
 
     #[test]
-    fn validate_rejects_bare_etc_token() {
-        let cwd = PathBuf::from("/tmp/project");
-        let err = validate_bash_command("bash", "ls /etc", &cwd).unwrap_err();
+    fn validate_rejects_absolute_var() {
+        let dir = tempfile::tempdir().unwrap();
+        let err =
+            validate_bash_command("bash", "tail /var/log/syslog", dir.path()).unwrap_err();
         assert!(matches!(err, ToolError::PathTraversal { .. }));
     }
 
     #[test]
     fn validate_allows_normal_commands() {
-        let cwd = PathBuf::from("/tmp/project");
+        let cwd = std::env::current_dir().unwrap();
         validate_bash_command("bash", "cargo build", &cwd).unwrap();
         validate_bash_command("bash", "echo hello", &cwd).unwrap();
         validate_bash_command("bash", "cat src/main.rs", &cwd).unwrap();
@@ -440,10 +465,12 @@ mod tests {
     }
 
     #[test]
-    fn validate_allows_subpath_containing_etc() {
-        let cwd = PathBuf::from("/tmp/project");
-        // "etcetera" should NOT be flagged as "/etc"
-        validate_bash_command("bash", "ls src/etcetera", &cwd).unwrap();
+    fn validate_allows_absolute_path_within_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_inside = dir.path().join("src").join("main.rs");
+        // The absolute path to a file inside cwd should be allowed.
+        let cmd = format!("cat {}", file_inside.display());
+        validate_bash_command("bash", &cmd, dir.path()).unwrap();
     }
 
     // ── Regression §1: unique tmp dirs prevent race condition ─────────────────
@@ -451,8 +478,7 @@ mod tests {
     /// Regression test for bug_report.md §1 (Race Condition in Sandbox).
     ///
     /// Two concurrent `BashTool` executions that both write to `$TMPDIR/output`
-    /// must NOT conflict. Each invocation sees its own isolated `$TMPDIR`, so the
-    /// files are distinct and the outputs are independent.
+    /// must NOT conflict. Each invocation sees its own isolated `$TMPDIR`.
     #[tokio::test]
     async fn concurrent_bash_tools_get_unique_tmp_dirs() {
         let cwd = Arc::new(std::env::current_dir().unwrap());
@@ -462,8 +488,6 @@ mod tests {
             let cwd = cwd.clone();
             set.spawn(async move {
                 let t = BashTool::new((*cwd).clone());
-                // Write a value to $TMPDIR/output — each invocation writes
-                // to its own isolated $TMPDIR, so no file can be overwritten.
                 let cmd = format!(
                     "echo {i} > \"$TMPDIR/output\" && cat \"$TMPDIR/output\""
                 );

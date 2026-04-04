@@ -71,6 +71,24 @@ impl Tool for GlobSearchTool {
                 reason: "missing required field 'pattern'".to_string(),
             })?;
 
+        // ── Pattern confinement ──────────────────────────────────────────────
+        // Reject absolute glob patterns before any I/O: `PathBuf::join` on an
+        // absolute pattern silently discards the base directory, allowing the
+        // glob to roam the entire filesystem (e.g. `/etc/*`).
+        if pattern_str.starts_with('/') {
+            return Err(ToolError::PathTraversal {
+                tool: "glob_search".to_string(),
+                path: pattern_str.to_string(),
+            });
+        }
+        // Reject `..` traversal inside the pattern string itself.
+        if pattern_str.contains("../") || pattern_str.contains("/..") || pattern_str == ".." {
+            return Err(ToolError::PathTraversal {
+                tool: "glob_search".to_string(),
+                path: pattern_str.to_string(),
+            });
+        }
+
         let base_str = input["path"].as_str().unwrap_or(".");
 
         // ── CWD confinement ──────────────────────────────────────────────────
@@ -80,6 +98,8 @@ impl Tool for GlobSearchTool {
         let base = resolve_within_cwd("glob_search", &self.cwd, base_str)?;
 
         // Build the full glob pattern from the confined base path.
+        // Safety: `pattern_str` has been verified non-absolute above, so
+        // `base.join(pattern_str)` cannot discard `base`.
         let full_pattern = base.join(pattern_str);
         let full_pattern_str = full_pattern.to_string_lossy().to_string();
 
@@ -352,6 +372,39 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ToolError::PathTraversal { .. }));
+    }
+
+    /// Regression: absolute glob pattern (e.g. `/etc/*`) must be rejected.
+    ///
+    /// Old bug: `PathBuf::join(base, "/etc/*")` silently discards `base`,
+    /// making the glob roam the entire filesystem.
+    #[tokio::test]
+    async fn glob_rejects_absolute_pattern() {
+        let dir = tmp();
+        let tool = GlobSearchTool::new(dir.path().to_path_buf());
+        let err = tool
+            .execute(json!({ "pattern": "/etc/*" }))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ToolError::PathTraversal { .. }),
+            "expected PathTraversal for absolute glob pattern, got {err:?}"
+        );
+    }
+
+    /// Glob pattern containing `..` traversal must be rejected.
+    #[tokio::test]
+    async fn glob_rejects_dotdot_in_pattern() {
+        let dir = tmp();
+        let tool = GlobSearchTool::new(dir.path().to_path_buf());
+        let err = tool
+            .execute(json!({ "pattern": "../../etc/*.conf" }))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ToolError::PathTraversal { .. }),
+            "expected PathTraversal for ../ in glob pattern, got {err:?}"
+        );
     }
 
     // ── GrepSearchTool ────────────────────────────────────────────────────────
