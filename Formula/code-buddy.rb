@@ -1,54 +1,39 @@
-# Homebrew formula for code-buddy
+# Code Buddy Homebrew Formula
 #
-# Usage:
+# Add the tap:
 #   brew tap simpletoolsindia/tap
 #   brew install code-buddy
 #
-# To update after a new release, run:
-#   brew upgrade code-buddy
+# Or install directly:
+#   brew install simpletoolsindia/tap/code-buddy
 
 class CodeBuddy < Formula
-  desc "AI coding assistant for local and open-source LLMs — Claude Code-style CLI"
+  desc "AI coding assistant for your terminal — Claude Code-style TUI with Ollama, LM Studio, OpenRouter and more"
   homepage "https://github.com/simpletoolsindia/code-buddy"
-  version "0.1.0"
+  url "https://github.com/simpletoolsindia/code-buddy/archive/553f97e29034b0f23ae369bcee07a080b7b52115.tar.gz"
+  sha256 "22774b03b40e734c911c67fb1dedef7afaf914ae790ab1fd94425edda5deb09b"
   license "MIT"
+  head "https://github.com/simpletoolsindia/code-buddy.git", branch: "main"
 
-  on_macos do
-    on_arm do
-      url "https://github.com/simpletoolsindia/code-buddy/releases/download/v#{version}/code-buddy-v#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256_AARCH64_DARWIN"
-    end
-    on_intel do
-      url "https://github.com/simpletoolsindia/code-buddy/releases/download/v#{version}/code-buddy-v#{version}-x86_64-apple-darwin.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256_X86_64_DARWIN"
-    end
-  end
+  bottle :unneeded
 
-  on_linux do
-    on_arm do
-      url "https://github.com/simpletoolsindia/code-buddy/releases/download/v#{version}/code-buddy-v#{version}-aarch64-unknown-linux-musl.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256_AARCH64_LINUX"
-    end
-    on_intel do
-      url "https://github.com/simpletoolsindia/code-buddy/releases/download/v#{version}/code-buddy-v#{version}-x86_64-unknown-linux-musl.tar.gz"
-      sha256 "REPLACE_WITH_ACTUAL_SHA256_X86_64_LINUX"
-    end
-  end
+  depends_on "rust" => :build
 
   def install
-    bin.install "code-buddy"
+    system "cargo", "install",
+      "--path", "crates/cli",
+      "--root", prefix,
+      "--locked"
   end
 
   def caveats
     <<~EOS
-      Run `code-buddy` to start the interactive session.
-      On first launch, the setup wizard will help you configure your provider and model.
+      Run `code-buddy` to start. The setup wizard will guide you on first launch.
 
-      Set a web search API key to enable the web_search tool:
+      Enable web search (optional):
         code-buddy config set brave_api_key YOUR_KEY
 
-      Configuration is stored at:
-        #{Dir.home}/.config/code-buddy/config.toml
+      Config file: ~/.config/code-buddy/config.toml
     EOS
   end
 
