@@ -4,6 +4,8 @@ members = [
     "crates/config",
     "crates/errors",
     "crates/providers",
+    "crates/runtime",
+    "crates/tools",
     "crates/transport",
     "crates/telemetry",
     "crates/utils",
@@ -46,6 +48,11 @@ bytes = "1"
 dirs = "5.0"
 futures-util = "0.3"
 tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
+
+# File/text search
+glob = "0.3"
+regex = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

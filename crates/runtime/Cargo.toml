@@ -1,0 +1,25 @@
+[package]
+name = "code-buddy-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Conversation runtime and tool-calling loop for Code Buddy"
+
+[dependencies]
+code-buddy-errors = { path = "../errors" }
+code-buddy-transport = { path = "../transport" }
+code-buddy-tools = { path = "../tools" }
+thiserror.workspace = true
+anyhow.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+
+[lints]
+workspace = true

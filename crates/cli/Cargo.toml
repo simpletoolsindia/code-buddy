@@ -14,7 +14,9 @@ path = "src/main.rs"
 code-buddy-errors = { path = "../errors" }
 code-buddy-config = { path = "../config" }
 code-buddy-providers = { path = "../providers" }
+code-buddy-runtime = { path = "../runtime" }
 code-buddy-telemetry = { path = "../telemetry" }
+code-buddy-tools = { path = "../tools" }
 code-buddy-transport = { path = "../transport" }
 code-buddy-utils = { path = "../utils" }
 thiserror.workspace = true

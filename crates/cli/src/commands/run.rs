@@ -1,10 +1,14 @@
-//! `run` subcommand — start an interactive REPL session.
+//! `run` subcommand — interactive REPL with tool-calling support.
+//!
+//! Slash commands: /help /quit /exit /clear /model /provider /status /context
+
+use std::io::{self, Write};
 
 use crate::args::RunArgs;
 use code_buddy_config::AppConfig;
 use code_buddy_providers::ProviderRegistry;
-use code_buddy_transport::{InputMessage, MessageRequest, StreamEvent};
-use std::io::{self, Write};
+use code_buddy_runtime::{ConversationRuntime, RuntimeConfig, TextSink};
+use code_buddy_tools::ToolRegistry;
 use tracing::debug;
 
 const BANNER: &str = r#"
@@ -16,17 +20,23 @@ const BANNER: &str = r#"
 "#;
 
 const SLASH_COMMANDS: &[(&str, &str)] = &[
-    ("/help", "Show available commands"),
-    ("/quit", "Exit Code Buddy"),
-    ("/exit", "Exit Code Buddy"),
-    ("/clear", "Clear conversation history"),
-    ("/status", "Show current configuration"),
-    ("/model", "Show or change model"),
-    ("/provider", "Show or change provider"),
-    ("/context", "Show context usage"),
+    ("/help",     "Show available commands"),
+    ("/quit",     "Exit Code Buddy"),
+    ("/exit",     "Exit Code Buddy"),
+    ("/clear",    "Clear conversation history"),
+    ("/status",   "Show current configuration"),
+    ("/model",    "Show current model"),
+    ("/provider", "Show current provider"),
+    ("/context",  "Show context (message count)"),
 ];
 
-pub async fn run(config: &AppConfig, _args: RunArgs) -> i32 {
+enum SlashResult {
+    Exit,
+    Continue,
+    Error(String),
+}
+
+pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
     if !config.no_color {
         print!("{BANNER}");
     }
@@ -39,6 +49,9 @@ pub async fn run(config: &AppConfig, _args: RunArgs) -> i32 {
     if let Some(ref model) = config.model {
         println!("Model: {model}");
     }
+    if args.no_tools {
+        println!("Tool calling: disabled");
+    }
     println!();
 
     let provider = match ProviderRegistry::from_config(config) {
@@ -49,12 +62,32 @@ pub async fn run(config: &AppConfig, _args: RunArgs) -> i32 {
         }
     };
 
-    let model = config
-        .model
-        .clone()
-        .unwrap_or_else(|| "local-model".to_string());
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let mut tools = ToolRegistry::new();
+    if !args.no_tools {
+        tools.register_builtin(cwd);
+        debug!(
+            "tools registered: {}",
+            tools
+                .definitions()
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
 
-    let mut history: Vec<InputMessage> = Vec::new();
+    let rt_config = RuntimeConfig {
+        model: config.model.clone().unwrap_or_else(|| "local-model".to_string()),
+        max_tokens: config.max_tokens.unwrap_or(4096),
+        temperature: config.temperature,
+        system_prompt: config.system_prompt.clone(),
+        streaming: config.streaming,
+        debug: config.debug,
+        ..Default::default()
+    };
+
+    let mut runtime = ConversationRuntime::new(provider, tools, rt_config);
 
     loop {
         print!("❯ ");
@@ -73,13 +106,13 @@ pub async fn run(config: &AppConfig, _args: RunArgs) -> i32 {
             }
         }
 
-        let input = input.trim();
+        let input = input.trim().to_string();
         if input.is_empty() {
             continue;
         }
 
         if input.starts_with('/') {
-            match handle_slash_command(input, config, &mut history) {
+            match handle_slash_command(&input, config, &mut runtime) {
                 SlashResult::Exit => break,
                 SlashResult::Continue => continue,
                 SlashResult::Error(msg) => eprintln!("{msg}"),
@@ -87,88 +120,28 @@ pub async fn run(config: &AppConfig, _args: RunArgs) -> i32 {
             continue;
         }
 
-        history.push(InputMessage::user_text(input));
+        let sink = TextSink::new(Box::new(|text: &str| {
+            print!("{text}");
+            io::stdout().flush().unwrap_or(());
+        }));
 
-        let mut request = MessageRequest {
-            model: model.clone(),
-            max_tokens: config.max_tokens.unwrap_or(4096),
-            messages: history.clone(),
-            system: config.system_prompt.clone(),
-            tools: None,
-            tool_choice: None,
-            stream: config.streaming,
-            temperature: config.temperature,
-        };
-
-        if config.streaming {
-            request.stream = true;
-            let mut response_text = String::new();
-
-            match provider.stream(&request).await {
-                Err(e) => {
-                    history.pop(); // remove the failed user message
-                    eprintln!("Stream error: {e}");
-                    continue;
+        match runtime.run_turn(&input, sink).await {
+            Ok(summary) => {
+                if !summary.response_text.ends_with('\n') {
+                    println!();
                 }
-                Ok(mut source) => {
-                    let mut stream_error = false;
-                    loop {
-                        match source.next_event().await {
-                            Ok(None) => break,
-                            Ok(Some(StreamEvent::TextDelta(text))) => {
-                                print!("{text}");
-                                io::stdout().flush().unwrap_or(());
-                                response_text.push_str(&text);
-                            }
-                            Ok(Some(StreamEvent::MessageStop)) => {
-                                println!();
-                                break;
-                            }
-                            Ok(Some(StreamEvent::Usage(u))) => {
-                                debug!(
-                                    "usage: in={} out={}",
-                                    u.input_tokens, u.output_tokens
-                                );
-                            }
-                            Ok(Some(StreamEvent::ToolUseDelta { name, input_json, .. })) => {
-                                debug!("tool call: {name}({input_json})");
-                            }
-                            Err(e) => {
-                                eprintln!("\nStream error: {e}");
-                                stream_error = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if stream_error {
-                        // Remove the user message — the turn did not complete cleanly.
-                        history.pop();
-                    } else if !response_text.is_empty() {
-                        history.push(InputMessage::assistant_text(response_text));
-                    }
+                if config.debug {
+                    eprintln!(
+                        "[tokens: in={} out={} | tool_calls={} iterations={}]",
+                        summary.input_tokens,
+                        summary.output_tokens,
+                        summary.tool_calls_made,
+                        summary.iterations,
+                    );
                 }
             }
-        } else {
-            match provider.send(&request).await {
-                Err(e) => {
-                    history.pop(); // remove the failed user message
-                    eprintln!("Error: {e}");
-                    continue;
-                }
-                Ok(response) => {
-                    let text = response.text_content();
-                    println!("{text}");
-                    if config.debug {
-                        eprintln!(
-                            "[tokens: in={} out={}]",
-                            response.usage.input_tokens, response.usage.output_tokens
-                        );
-                    }
-                    if !text.is_empty() {
-                        history.push(InputMessage::assistant_text(text));
-                    }
-                }
+            Err(e) => {
+                eprintln!("Error: {e}");
             }
         }
 
@@ -178,16 +151,10 @@ pub async fn run(config: &AppConfig, _args: RunArgs) -> i32 {
     0
 }
 
-enum SlashResult {
-    Exit,
-    Continue,
-    Error(String),
-}
-
 fn handle_slash_command(
     input: &str,
     config: &AppConfig,
-    history: &mut Vec<InputMessage>,
+    runtime: &mut ConversationRuntime,
 ) -> SlashResult {
     let parts: Vec<&str> = input.splitn(2, ' ').collect();
     let cmd = parts[0].to_lowercase();
@@ -206,7 +173,7 @@ fn handle_slash_command(
             SlashResult::Continue
         }
         "/clear" => {
-            history.clear();
+            runtime.clear_history();
             print!("\x1b[2J\x1b[H");
             println!("Conversation history cleared.");
             SlashResult::Continue
@@ -221,15 +188,32 @@ fn handle_slash_command(
             );
             println!("  Streaming: {}", config.streaming);
             println!("  Debug:     {}", config.debug);
-            println!("  History:   {} messages", history.len());
+            println!("  History:   {} messages", runtime.history().len());
             println!();
+            SlashResult::Continue
+        }
+        "/model" => {
+            println!(
+                "\nModel: {}",
+                config.model.as_deref().unwrap_or("(not set)")
+            );
+            SlashResult::Continue
+        }
+        "/provider" => {
+            println!(
+                "\nProvider: {} ({})",
+                config.provider,
+                config.resolved_endpoint()
+            );
             SlashResult::Continue
         }
         "/context" => {
-            println!("\nContext: {} messages in history", history.len());
+            println!("\nContext: {} messages in history", runtime.history().len());
             println!();
             SlashResult::Continue
         }
-        _ => SlashResult::Error(format!("Unknown command '{cmd}'. Type /help for commands.")),
+        _ => SlashResult::Error(format!(
+            "Unknown command '{cmd}'. Type /help for commands."
+        )),
     }
 }
