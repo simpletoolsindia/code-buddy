@@ -276,8 +276,11 @@ impl ConversationRuntime {
     /// Pass `TextSink::none()` when no streaming output is needed.
     /// Pass `TextSink::new(Box::new(|text| ...))` to receive text deltas.
     ///
-    /// On any error, the user message is popped from history so state remains
-    /// consistent with the turn never having been attempted.
+    /// **Transactional history**: the history length is snapshot before the turn
+    /// begins. If the loop fails at any point — even mid-way through multiple tool
+    /// iterations where several assistant/tool-result messages have already been
+    /// appended — the entire turn is rolled back to the snapshot length. This
+    /// ensures no orphaned or partially-committed messages remain.
     ///
     /// # Errors
     /// Returns [`RuntimeError`] on provider failure, tool failure, or max iterations.
@@ -287,10 +290,15 @@ impl ConversationRuntime {
         user_input: &str,
         sink: TextSink,
     ) -> Result<TurnSummary, RuntimeError> {
+        // Snapshot length BEFORE the user message so the whole turn (user
+        // message + all assistant/tool messages) is rolled back atomically on error.
+        let snapshot_len = self.history.len();
         self.history.push(InputMessage::user_text(user_input));
         let result = self.run_loop(sink).await;
         if result.is_err() {
-            self.history.pop();
+            // Truncate back to the pre-turn state — removes all messages that
+            // were appended during this failed turn (user, assistant, tool results).
+            self.history.truncate(snapshot_len);
         }
         result
     }
@@ -662,6 +670,23 @@ mod tests {
         )
     }
 
+    /// Like `make_runtime` but with a custom `max_iterations` guard.
+    fn make_runtime_with_max_iter(
+        responses: Vec<MessageResponse>,
+        max_iterations: usize,
+    ) -> ConversationRuntime {
+        let mut tools = ToolRegistry::new();
+        tools.register(EchoTool);
+        ConversationRuntime::new(
+            Box::new(MockProvider::new(responses)),
+            tools,
+            RuntimeConfig {
+                max_iterations,
+                ..RuntimeConfig::default()
+            },
+        )
+    }
+
     fn no_sink() -> TextSink {
         TextSink::none()
     }
@@ -692,6 +717,64 @@ mod tests {
         let err = rt.run_turn("hello", no_sink()).await;
         assert!(err.is_err());
         assert_eq!(rt.history().len(), 0);
+    }
+
+    /// Regression: provider failure mid-loop (after tool messages have been
+    /// appended) must roll back ALL messages added during that turn, not just
+    /// the last one.
+    ///
+    /// Old bug: `run_turn` called `self.history.pop()` on error, which removed
+    /// only the final message. The user message + tool use blocks + tool result
+    /// blocks from completed iterations remained in history, corrupting every
+    /// subsequent turn.
+    #[tokio::test]
+    async fn history_fully_rolled_back_after_tool_call_then_provider_failure() {
+        // Turn 0 (external, already in history): a clean prior exchange.
+        // Then turn 1 (our test turn): tool call succeeds, second call fails.
+        let mut rt = make_runtime(vec![
+            MockProvider::tool_call_response("c1", "echo", json!({ "msg": "x" })),
+            // No second response → provider queue is empty → simulates failure.
+        ]);
+
+        // Record history length before the failing turn.
+        let before = rt.history().len();
+        let err = rt.run_turn("trigger tool then fail", no_sink()).await;
+        assert!(err.is_err(), "expected provider error on second call");
+
+        // History must be back to exactly the pre-turn snapshot.
+        assert_eq!(
+            rt.history().len(),
+            before,
+            "history must be fully rolled back after mid-loop failure; \
+             old bug left orphaned tool messages behind"
+        );
+    }
+
+    /// Regression: a turn that hits max-iterations must also roll back the
+    /// full history accumulated during that turn, not just the last message.
+    #[tokio::test]
+    async fn history_fully_rolled_back_on_max_iterations() {
+        // max_iterations = 3, but we supply enough tool-call responses to hit
+        // the guard before a final text response arrives.
+        let responses = vec![
+            MockProvider::tool_call_response("c1", "echo", json!({ "msg": "a" })),
+            MockProvider::tool_call_response("c2", "echo", json!({ "msg": "b" })),
+            MockProvider::tool_call_response("c3", "echo", json!({ "msg": "c" })),
+        ];
+        let mut rt = make_runtime_with_max_iter(responses, 3);
+
+        let before = rt.history().len();
+        let err = rt.run_turn("keep calling tools", no_sink()).await;
+        assert!(
+            matches!(err, Err(RuntimeError::MaxIterationsExceeded { .. })),
+            "expected MaxIterationsExceeded, got {err:?}"
+        );
+        assert_eq!(
+            rt.history().len(),
+            before,
+            "history must be fully rolled back on max-iterations; \
+             old bug only popped the last message"
+        );
     }
 
     // ── Tool-calling loop ─────────────────────────────────────────────────────
