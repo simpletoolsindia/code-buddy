@@ -1,14 +1,13 @@
 # Code Buddy ✻
 
-A local-first AI coding assistant for your terminal — Claude Code-style TUI,
-file & shell tools, web search, and first-class support for Ollama, LM Studio,
-OpenRouter, OpenAI, NVIDIA, and any OpenAI-compatible endpoint.
+> AI coding assistant for your terminal — Claude Code-style TUI, file & shell tools,
+> web search, and support for Ollama, LM Studio, OpenRouter, OpenAI, NVIDIA, and more.
 
 ---
 
-## Quick Install
+## Install in One Command
 
-### Linux & macOS (one command)
+### Linux & macOS
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh
@@ -20,11 +19,10 @@ curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/in
 irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 | iex
 ```
 
-### Homebrew (macOS / Linux)
+### Homebrew
 
 ```bash
-brew tap simpletoolsindia/tap
-brew install code-buddy
+brew tap simpletoolsindia/tap && brew install code-buddy
 ```
 
 ### Cargo
@@ -33,99 +31,88 @@ brew install code-buddy
 cargo install --git https://github.com/simpletoolsindia/code-buddy --bin code-buddy --locked
 ```
 
+> After install, just run `code-buddy` — the setup wizard launches automatically on first run.
+
 ---
 
-## First-Run Setup Wizard
+## What it does
 
-The first time you run `code-buddy`, a guided wizard walks you through:
-
-1. **Provider** — Ollama · LM Studio · OpenRouter · OpenAI · NVIDIA · Custom
-2. **API key** — prompted only for cloud providers
-3. **Model** — auto-populated from your provider's live model list
-4. **Brave Search key** (optional) — enables the `web_search` tool
-5. **Firecrawl key** (optional) — enables full-page web fetch
-
-Run the wizard again any time:
-
-```bash
-code-buddy setup
-```
+- **Interactive session** — streams responses from any LLM, right in your terminal
+- **Built-in tools** — read/write files, run shell commands, search the web, fetch pages
+- **Claude Code-style TUI** — coloured banner, live spinner, slash commands (`/tools`, `/status`)
+- **Setup wizard** — one-time guided config: pick provider → model → API keys
+- **Live model list** — auto-fetches available models from Ollama, LM Studio, OpenRouter, OpenAI
+- **Web search** — Brave Search (or SerpAPI fallback) + page fetch with HTML-to-text extraction
 
 ---
 
 ## Supported Providers
 
-| Provider | Requires key? | Notes |
+| Provider | Local? | Notes |
 |---|---|---|
-| **Ollama** | No | `http://localhost:11434` — models auto-listed |
-| **LM Studio** | No | `http://localhost:1234` — models auto-listed |
-| **OpenRouter** | Yes | Hundreds of open & commercial models |
-| **OpenAI** | Yes | GPT-4o, o3, etc. |
-| **NVIDIA** | Yes | NVIDIA AI Endpoints (Llama, Mistral, …) |
-| **Custom** | Optional | Any OpenAI-compat endpoint |
+| **Ollama** | Yes | `http://localhost:11434` — models auto-listed |
+| **LM Studio** | Yes | `http://localhost:1234` — models auto-listed |
+| **OpenRouter** | Cloud | Hundreds of open & commercial models |
+| **OpenAI** | Cloud | GPT-4o, o3, etc. |
+| **NVIDIA** | Cloud | NVIDIA AI Endpoints |
+| **Custom** | Either | Any OpenAI-compatible endpoint |
 
 ---
 
 ## Usage
 
-### Interactive session (default)
+### Start a session
 
 ```bash
-code-buddy          # start a session in the current directory
-code-buddy run      # explicit
+code-buddy          # interactive session in the current directory
 ```
 
-**Slash commands inside a session:**
+**Slash commands:**
 
 | Command | Description |
 |---|---|
 | `/tools` | List active tools |
-| `/status` | Show provider, model, and tool availability |
-| `/exit` or `/quit` | End the session |
+| `/status` | Provider, model, web tool availability |
+| `/exit` | End session |
 
 ### One-shot question
 
 ```bash
-code-buddy ask "Explain this function" --file src/main.rs
+code-buddy ask "How do I reverse a linked list?" --file src/main.rs
 ```
 
-### Config management
+### Config
 
 ```bash
-code-buddy config show                        # print current config
-code-buddy config get provider                # single field
-code-buddy config set brave_api_key sk-...    # update a field
-code-buddy config path                        # show config file location
+code-buddy setup                              # re-run the setup wizard
+code-buddy config show                        # view all settings
+code-buddy config set brave_api_key YOUR_KEY  # update a field
+code-buddy config path                        # location of config file
 ```
 
 ---
 
 ## Tools
 
-Code Buddy ships a built-in tool registry. All tools are available by default
-unless disabled with `--no-tools`.
-
 | Tool | Description |
 |---|---|
-| `read_file` | Read a file from the workspace |
+| `read_file` | Read a file |
 | `write_file` | Create or overwrite a file |
 | `list_dir` | List directory contents |
 | `run_shell` | Execute a shell command |
 | `web_search` | Search the web (Brave or SerpAPI) |
 | `web_fetch` | Fetch and render a webpage as text |
 
-### Enabling web tools
+### Enable web tools
 
 ```bash
-# Brave Search (preferred)
+# Brave Search (preferred) — https://brave.com/search/api/
 code-buddy config set brave_api_key YOUR_KEY
-# or
-export CODE_BUDDY_BRAVE_API_KEY=YOUR_KEY
 
-# SerpAPI (fallback)
+# SerpAPI fallback — https://serpapi.com/
 code-buddy config set serpapi_key YOUR_KEY
 
-# Firecrawl (richer page extraction, optional)
+# Firecrawl (richer extraction, optional) — https://firecrawl.dev/
 code-buddy config set firecrawl_api_key YOUR_KEY
 ```
 
@@ -133,8 +120,8 @@ code-buddy config set firecrawl_api_key YOUR_KEY
 
 ## Configuration
 
-Config lives at `~/.config/code-buddy/config.toml` (XDG-compliant).
-Every field can be overridden with an environment variable.
+Config file: `~/.config/code-buddy/config.toml`
+Every field can be overridden by an environment variable.
 
 | Field | Env var | Default |
 |---|---|---|
@@ -153,7 +140,7 @@ Every field can be overridden with an environment variable.
 
 ---
 
-## Building From Source
+## Build from Source
 
 Requires Rust 1.80+.
 
@@ -164,37 +151,43 @@ cargo build --release
 ./target/release/code-buddy --version
 ```
 
-Or let the installer build it for you:
+Or let the installer build it:
 
 ```bash
-curl -fsSL .../install.sh | sh -s -- --source
+curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh -s -- --source
 ```
 
 ---
 
-## Contributing
+## Release
 
-Pull requests are welcome. The codebase is a Cargo workspace:
+Tag a version to trigger a GitHub Actions release (builds for Linux x64/arm64, macOS x64/arm64, Windows x64):
+
+```bash
+make publish TAG=v0.2.0
+```
+
+---
+
+## Project Layout
 
 ```
 crates/
-  cli/        # Binary entry-point, commands, TUI
-  config/     # Config loading, env overrides, validation
+  cli/        # Binary, commands, TUI
+  config/     # Config loading & env overrides
   providers/  # Provider adapters + SSE streaming
-  tools/      # Tool registry, file/shell/web tools
+  tools/      # Tool registry: file, shell, web
   errors/     # Shared error types
   agent/      # Conversation runtime & tool dispatch
 ```
 
-Run the test suite:
-
 ```bash
-make test      # or: cargo test --all
-make lint      # clippy + rustfmt check
+make test    # run all 241 tests
+make lint    # clippy + rustfmt
 ```
 
 ---
 
 ## License
 
-MIT © simpletoolsindia
+MIT © [simpletoolsindia](https://github.com/simpletoolsindia)
