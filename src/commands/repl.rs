@@ -41,14 +41,11 @@ pub async fn run(state: &mut AppState) -> Result<i32> {
     let mut output = OutputState::new();
 
     println!();
-    println!("\x1b[1m\x1b[36m╔════════════════════════════════════════════════════════════════╗\x1b[0m");
-    println!("\x1b[1m\x1b[36m║                    Code Buddy v2.2.0                            ║\x1b[0m");
-    println!("\x1b[1m\x1b[36m╠════════════════════════════════════════════════════════════════╣\x1b[0m");
-    println!("\x1b[1m\x1b[36m║  Type /help for commands  •  /quit to exit                      ║\x1b[0m");
-    println!("\x1b[1m\x1b[36m╚════════════════════════════════════════════════════════════════╝\x1b[0m");
-    println!();
+    println!("\x1b[1m\x1b[36m╭─────────────────────────────────────────────────────────────\x1b[0m");
+    println!("\x1b[1m\x1b[36m│\x1b[0m  \x1b[1mCode Buddy\x1b[0m - Your AI Coding Companion");
+    println!("\x1b[1m\x1b[36m╰─────────────────────────────────────────────────────────────\x1b[0m");
 
-    // Show current config
+    // Show current config (simplified)
     show_status(state);
     println!();
 
@@ -102,6 +99,9 @@ async fn handle_slash_command(input: &str, state: &mut AppState, _output: &mut O
     match cmd.as_str() {
         "/help" | "/?" => {
             show_help();
+        }
+        "/more" => {
+            show_more_help();
         }
         "/quit" | "/exit" | "/q" => {
             println!("\x1b[90mGoodbye!\x1b[0m");
@@ -479,7 +479,14 @@ async fn handle_prompt(prompt: &str, state: &mut AppState, output: &mut OutputSt
     output.show_thinking();
 
     let api_client = ApiClient::new(state)?;
-    let response = api_client.complete(prompt, &state.config, state).await?;
+    let response = match api_client.complete(prompt, &state.config, state).await {
+        Ok(r) => r,
+        Err(e) => {
+            output.clear_status();
+            show_error_help(&e, state);
+            return Ok(());
+        }
+    };
 
     // Clear thinking status
     output.clear_status();
@@ -518,24 +525,160 @@ async fn handle_prompt(prompt: &str, state: &mut AppState, output: &mut OutputSt
     Ok(())
 }
 
-fn show_help() {
-    println!("\x1b[1m\x1b[36m╔════════════════════════════════════════════════════════════════╗\x1b[0m");
-    println!("\x1b[1m\x1b[36m║                    Available Commands                      ║\x1b[0m");
-    println!("\x1b[1m\x1b[36m╠════════════════════════════════════════════════════════════════╣\x1b[0m");
-    for (cmd, desc) in SLASH_COMMANDS {
-        println!("\x1b[36m║\x1b[0m  \x1b[32m{:15}\x1b[0m  {}", cmd, desc);
+/// Show helpful error messages with suggestions
+fn show_error_help(error: &anyhow::Error, state: &AppState) {
+    let error_str = error.to_string();
+    println!();
+
+    // Check for common error types
+    if error_str.contains("model") && error_str.contains("not found") {
+        println!("\x1b[31m✗ Model not found\x1b[0m");
+        println!();
+        println!("The model '{}' doesn't exist or isn't available.", state.config.model.as_deref().unwrap_or("unknown"));
+        println!();
+        println!("\x1b[33mSuggestions:\x1b[0m");
+        println!("  1. Check your API key is correct: \x1b[32mcode-buddy /status\x1b[0m");
+        println!("  2. Try a different model: \x1b[32mcode-buddy /model <model-name>\x1b[0m");
+        println!("  3. Run setup wizard: \x1b[32mcode-buddy --setup\x1b[0m");
+        println!("  4. Check available models: \x1b[32mcode-buddy /models\x1b[0m");
+    } else if error_str.contains("401") || error_str.contains("Unauthorized") || error_str.contains("api key") {
+        println!("\x1b[31m✗ Authentication failed\x1b[0m");
+        println!();
+        println!("Your API key is missing or incorrect.");
+        println!();
+        println!("\x1b[33mTo fix this:\x1b[0m");
+        println!("  1. Get an API key from your provider's website");
+        println!("  2. Set it with: \x1b[32mcode-buddy --login YOUR_API_KEY\x1b[0m");
+        println!("  3. Or set the environment variable:");
+        println!("     \x1b[90mexport ANTHROPIC_API_KEY=sk-...  # for Claude\x1b[0m");
+        println!("     \x1b[90mexport OPENAI_API_KEY=sk-...    # for GPT\x1b[0m");
+    } else if error_str.contains("429") || error_str.contains("rate limit") {
+        println!("\x1b[33m⚠ Rate limit exceeded\x1b[0m");
+        println!();
+        println!("You've made too many requests. Wait a moment and try again.");
+        println!();
+        println!("\x1b[33mTips:\x1b[0m");
+        println!("  • Try a free model like: \x1b[32mgoogle/gemini-2.5-flash-preview-05-20:free\x1b[0m");
+        println!("  • Use OpenRouter for free tier: \x1b[32mcode-buddy --provider openrouter\x1b[0m");
+    } else if error_str.contains("connection") || error_str.contains("timeout") || error_str.contains("refused") {
+        println!("\x1b[31m✗ Connection error\x1b[0m");
+        println!();
+        println!("Could not connect to the API server.");
+        println!();
+        println!("\x1b[33mSuggestions:\x1b[0m");
+        println!("  1. Check your internet connection");
+        println!("  2. Try using Ollama (free, works offline): \x1b[32mcode-buddy --setup\x1b[0m");
+        println!("  3. Check if your API provider is down");
+    } else {
+        // Generic error
+        println!("\x1b[31m✗ Error\x1b[0m: {}", error_str);
+        println!();
+        println!("\x1b[33mNeed help?\x1b[0m");
+        println!("  • Run diagnostics: \x1b[32mcode-buddy --doctor\x1b[0m");
+        println!("  • Reconfigure: \x1b[32mcode-buddy --setup\x1b[0m");
+        println!("  • Check status: \x1b[32mcode-buddy /status\x1b[0m");
     }
-    println!("\x1b[1m\x1b[36m╚════════════════════════════════════════════════════════════════╝\x1b[0m");
+
+    println!();
+    println!("\x1b[90mRun \x1b[32m/code-buddy help\x1b[0m\x1b[90m for assistance\x1b[0m");
+    println!();
+}
+
+fn show_help() {
+    println!();
+    println!("\x1b[1m╭─────────────────────────────────────────────────────────────\x1b[0m");
+    println!("\x1b[1m│\x1b[0m  \x1b[1mEssential Commands\x1b[0m");
+    println!("\x1b[1m╰─────────────────────────────────────────────────────────────\x1b[0m");
+    println!();
+    println!("  \x1b[32m/help\x1b[0m        Show all commands (you're looking at it!)");
+    println!("  \x1b[32m/quit\x1b[0m        Exit Code Buddy");
+    println!("  \x1b[32m/clear\x1b[0m       Clear conversation history");
+    println!("  \x1b[32m/status\x1b[0m      Check your setup");
+    println!();
+    println!("\x1b[1m╭─────────────────────────────────────────────────────────────\x1b[0m");
+    println!("\x1b[1m│\x1b[0m  \x1b[1mConfiguration\x1b[0m");
+    println!("\x1b[1m╰─────────────────────────────────────────────────────────────\x1b[0m");
+    println!();
+    println!("  \x1b[32m/setup\x1b[0m       Reconfigure Code Buddy");
+    println!("  \x1b[32m/login\x1b[0m        Set your API key");
+    println!("  \x1b[32m/model\x1b[0m <name> Change the AI model");
+    println!("  \x1b[32m/doctor\x1b[0m       Check for problems");
+    println!();
+    println!("\x1b[90mTip: Type your question naturally and press Enter!\x1b[0m");
+    println!("\x1b[90mType /more for advanced commands.\x1b[0m");
+    println!();
+}
+
+fn show_more_help() {
+    println!();
+    println!("\x1b[1m╭─────────────────────────────────────────────────────────────\x1b[0m");
+    println!("\x1b[1m│\x1b[0m  \x1b[1mAdvanced Commands\x1b[0m");
+    println!("\x1b[1m╰─────────────────────────────────────────────────────────────\x1b[0m");
+    println!();
+    println!("  \x1b[33m/history\x1b[0m      View conversation history");
+    println!("  \x1b[33m/reset\x1b[0m         Start fresh conversation");
+    println!("  \x1b[33m/context\x1b[0m       Show context usage");
+    println!("  \x1b[33m/compact\x1b[0m       Reduce context size");
+    println!("  \x1b[33m/stats\x1b[0m         Show usage statistics");
+    println!();
+    println!("  \x1b[33m/copy\x1b[0m          Copy last response");
+    println!("  \x1b[33m/btw\x1b[0m <question> Ask a quick side question");
+    println!("  \x1b[33m/fast\x1b[0m          Toggle fast/short responses");
+    println!();
+    println!("\x1b[90mRun /help to see essential commands again.\x1b[0m");
     println!();
 }
 
 fn show_status(state: &AppState) {
-    println!("\x1b[1m=== Current Configuration ===\x1b[0m");
-    println!("\x1b[90mProvider:\x1b[0m {}", state.config.llm_provider);
-    println!("\x1b[90mModel:\x1b[0m {:?}", state.config.model.as_deref().unwrap_or("default"));
-    println!("\x1b[90mAPI Key:\x1b[0m {}", if state.config.api_key.is_some() { "\x1b[32mConfigured ✓\x1b[0m" } else { "\x1b[31mNot set ✗\x1b[0m" });
-    println!("\x1b[90mMessages:\x1b[0m {}", state.conversation_history.len());
-    println!("\x1b[90mConfig:\x1b[0m {:?}", state.config.config_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default());
+    println!("\x1b[1m╭─ Current Setup ─────────────────────────────────────────────\x1b[0m");
+
+    let provider_display: String = if state.config.base_url.is_some() && !state.config.base_url.as_ref().unwrap().is_empty() {
+        let base = state.config.base_url.as_ref().unwrap();
+        if base.contains("ollama") {
+            "Ollama (local)".to_string()
+        } else if base.contains("nvidia") {
+            "NVIDIA NIM".to_string()
+        } else if base.contains("openrouter") {
+            "OpenRouter".to_string()
+        } else if base.contains("anthropic") {
+            "Anthropic".to_string()
+        } else if base.contains("openai") {
+            "OpenAI".to_string()
+        } else {
+            format!("Custom")
+        }
+    } else {
+        match state.config.llm_provider.as_str() {
+            "ollama" => "Ollama (local, free!)".to_string(),
+            "openrouter" => "OpenRouter".to_string(),
+            "anthropic" => "Anthropic (Claude)".to_string(),
+            "openai" => "OpenAI (GPT)".to_string(),
+            "nvidia" => "NVIDIA NIM".to_string(),
+            "groq" => "Groq".to_string(),
+            "deepseek" => "DeepSeek".to_string(),
+            "mlx" => "MLX (local)".to_string(),
+            other => other.to_string(),
+        }
+    };
+    println!("│  Provider: \x1b[36m{}\x1b[0m", provider_display);
+
+    let model = state.config.model.as_deref().unwrap_or("default");
+    println!("│  Model:    \x1b[36m{}\x1b[0m", model);
+
+    if state.config.api_key.is_some() {
+        println!("│  API Key:  \x1b[32m✓ Configured\x1b[0m");
+    } else if state.config.llm_provider == "ollama" || state.config.llm_provider == "mlx" {
+        println!("│  API Key:  \x1b[32m✓ Not needed (local)\x1b[0m");
+    } else {
+        println!("│  API Key:  \x1b[31m⚠ Not set\x1b[0m - run /login to set it");
+    }
+
+    if state.conversation_history.is_empty() {
+        println!("\x1b[1m╰─────────────────────────────────────────────────────────────\x1b[0m");
+    } else {
+        println!("│  Messages: {}", state.conversation_history.len());
+        println!("\x1b[1m╰─────────────────────────────────────────────────────────────\x1b[0m");
+    }
 }
 
 fn show_session_changes(state: &AppState) {

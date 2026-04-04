@@ -45,6 +45,7 @@ pub mod session;
 pub mod setup;
 pub mod share;
 pub mod slash;
+pub mod status;
 pub mod status_cmd;
 pub mod tag_cmd;
 pub mod tasks;
@@ -103,7 +104,3 @@ pub use usage::run as usage_run;
 pub use version::run as version_run;
 pub use voice::run as voice_run;
 
-// Re-export status and update for main.rs compatibility
-pub mod status {
-    pub use super::repl::run;
-}

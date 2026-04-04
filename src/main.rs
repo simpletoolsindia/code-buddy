@@ -218,7 +218,7 @@ async fn run_command(cli: Cli, state: &mut AppState) -> Result<i32> {
         }
 
         Some(CommandEnum::Status) => {
-            commands::status::run(state).await
+            crate::commands::status::run(state).await
         }
 
         Some(CommandEnum::Version) => {

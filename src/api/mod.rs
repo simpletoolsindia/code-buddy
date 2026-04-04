@@ -270,7 +270,7 @@ impl ApiClient {
         };
 
         match self.provider {
-            LlmProvider::Anthropic => "claude-sonnet-4-5".to_string(),
+            LlmProvider::Anthropic => "claude-sonnet-4-6".to_string(),
             LlmProvider::OpenAI => "gpt-4o".to_string(),
             LlmProvider::OpenRouter => "anthropic/claude-3.5-haiku:free".to_string(),
             LlmProvider::Nvidia => "meta/llama-3.1-8b-instruct".to_string(),
@@ -295,7 +295,7 @@ impl ApiClient {
             LlmProvider::Fireworks => "accounts/fireworks/models/llama-v3p1-70b-instruct".to_string(),
             LlmProvider::Cerebras => "cerebras/llama-3.3-70b".to_string(),
             LlmProvider::SambaNova => "Meta-Llama-3.1-70B-Instruct".to_string(),
-            LlmProvider::Custom => "claude-sonnet-4-5".to_string(),
+            LlmProvider::Custom => "claude-sonnet-4-6".to_string(),
         }
     }
 
