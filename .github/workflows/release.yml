@@ -46,11 +46,18 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      - name: Install musl tools (Linux musl targets)
-        if: contains(matrix.target, 'musl')
+      - name: Install musl tools (x86_64 Linux musl)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y musl-tools
+
+      - name: Install cross-compilation tools (aarch64 Linux musl)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
 
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
@@ -67,7 +74,7 @@ jobs:
           cp target/${{ matrix.target }}/release/code-buddy dist/code-buddy
           cp README.md install.sh dist/
           tar czf "$ARCHIVE" -C dist .
-          sha256sum "$ARCHIVE" >> checksums.txt
+          sha256sum "$ARCHIVE" > "checksums-${{ matrix.target }}.txt"
 
       - name: Package (zip — Windows)
         if: matrix.archive == 'zip'
@@ -79,7 +86,7 @@ jobs:
           Copy-Item README.md dist/
           Compress-Archive -Path dist/* -DestinationPath $archive
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
-          "$hash  $archive" | Out-File -Append checksums.txt
+          "$hash  $archive" | Out-File -Encoding utf8 "checksums-${{ matrix.target }}.txt"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -88,7 +95,7 @@ jobs:
           path: |
             code-buddy-*.tar.gz
             code-buddy-*.zip
-            checksums.txt
+            checksums-${{ matrix.target }}.txt
 
   # ── 2. Publish GitHub Release with all binaries ────────────────────────────
   release:
@@ -109,7 +116,7 @@ jobs:
 
       - name: Merge checksum files
         run: |
-          cat artifacts/checksums.txt | sort -u > checksums.txt
+          cat artifacts/checksums-*.txt | sort -u > checksums.txt
           echo "=== checksums.txt ==="
           cat checksums.txt
 
@@ -126,7 +133,7 @@ jobs:
 
             ### Linux / macOS (one command)
             ```bash
-            curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh
+            curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | bash
             ```
 
             ### Windows (PowerShell)

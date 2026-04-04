@@ -26,7 +26,7 @@
 
 | Platform | Command |
 |:---|:---|
-| **Linux & macOS** | `curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh \| sh` |
+| **Linux & macOS** | `curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh \| bash` |
 | **Windows** | `irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 \| iex` |
 | **Homebrew** | `brew install simpletoolsindia/tap/code-buddy` |
 | **Cargo** | `cargo install --git https://github.com/simpletoolsindia/code-buddy --bin code-buddy --locked` |

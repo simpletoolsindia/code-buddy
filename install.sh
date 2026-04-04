@@ -5,7 +5,7 @@
 # Falls back to building from source with --source.
 #
 # Quick install (Linux / macOS):
-#   curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | bash
 #
 # Options:
 #   --prefix DIR   Install root (binary → DIR/bin). Default: ~/.local
@@ -56,7 +56,7 @@ Options:
   -h, --help     Show this help
 
 One-line install:
-  curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | bash
 EOF
             exit 0 ;;
         *) warn "Unknown argument: $1 (ignored)"; shift ;;
@@ -97,6 +97,18 @@ detect_target() {
             esac ;;
         *) fail "Unsupported OS '${os}'. Use --source to build." ;;
     esac
+}
+
+# ── PATH hint ──────────────────────────────────────────────────────────────────
+path_hint() {
+    local dir="$1"
+    if ! echo ":${PATH}:" | grep -q ":${dir}:"; then
+        echo ""
+        warn "${dir} is not in your PATH. Add it:"
+        echo "  ${BOLD}echo 'export PATH="${dir}:\$PATH"' >> ~/.bashrc && source ~/.bashrc${RESET}"
+        echo "  (or ~/.zshrc for zsh)"
+        echo ""
+    fi
 }
 
 # ── Source build ───────────────────────────────────────────────────────────────
@@ -179,18 +191,6 @@ mkdir -p "${INSTALL_BIN_DIR}"
 tar -xzf "${TMPDIR}/${ARCHIVE}" -C "${TMPDIR}"
 install -m 755 "${TMPDIR}/${APP_NAME}" "${BINARY}"
 success "${APP_NAME} ${TAG} → ${BINARY}"
-
-# ── PATH hint ──────────────────────────────────────────────────────────────────
-path_hint() {
-    local dir="$1"
-    if ! echo ":${PATH}:" | grep -q ":${dir}:"; then
-        echo ""
-        warn "${dir} is not in your PATH. Add it:"
-        echo "  ${BOLD}echo 'export PATH=\"${dir}:\$PATH\"' >> ~/.bashrc && source ~/.bashrc${RESET}"
-        echo "  (or ~/.zshrc for zsh)"
-        echo ""
-    fi
-}
 
 path_hint "${INSTALL_BIN_DIR}"
 echo ""
