@@ -1,0 +1,240 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  # ── 1. Build binaries for all 5 platforms ──────────────────────────────────
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install musl tools (Linux musl targets)
+        if: contains(matrix.target, 'musl')
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y musl-tools
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: matrix.os != 'windows-latest'
+        run: strip target/${{ matrix.target }}/release/code-buddy
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          ARCHIVE="code-buddy-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/code-buddy dist/code-buddy
+          cp README.md install.sh dist/
+          tar czf "$ARCHIVE" -C dist .
+          sha256sum "$ARCHIVE" >> checksums.txt
+
+      - name: Package (zip — Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $archive = "code-buddy-${{ github.ref_name }}-${{ matrix.target }}.zip"
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/${{ matrix.target }}/release/code-buddy.exe" dist/
+          Copy-Item README.md dist/
+          Compress-Archive -Path dist/* -DestinationPath $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          "$hash  $archive" | Out-File -Append checksums.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.target }}
+          path: |
+            code-buddy-*.tar.gz
+            code-buddy-*.zip
+            checksums.txt
+
+  # ── 2. Publish GitHub Release with all binaries ────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Merge checksum files
+        run: |
+          cat artifacts/checksums.txt | sort -u > checksums.txt
+          echo "=== checksums.txt ==="
+          cat checksums.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/code-buddy-*.tar.gz
+            artifacts/code-buddy-*.zip
+            checksums.txt
+          body: |
+            ## Install
+
+            ### Linux / macOS (one command)
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh
+            ```
+
+            ### Windows (PowerShell)
+            ```powershell
+            irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 | iex
+            ```
+
+            ### Homebrew
+            ```bash
+            brew install simpletoolsindia/tap/code-buddy
+            ```
+
+            ### Cargo
+            ```bash
+            cargo install --git https://github.com/simpletoolsindia/code-buddy --bin code-buddy --locked
+            ```
+
+  # ── 3. Update Homebrew tap formula ────────────────────────────────────────
+  homebrew:
+    name: Update Homebrew Tap
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Compute source tarball SHA256
+        id: tarball
+        run: |
+          TAG="${{ github.ref_name }}"
+          URL="https://github.com/simpletoolsindia/code-buddy/archive/refs/tags/${TAG}.tar.gz"
+          echo "Downloading $URL …"
+          curl -fsSL "$URL" -o source.tar.gz
+          SHA256=$(sha256sum source.tar.gz | awk '{print $1}')
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+          echo "url=$URL"       >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"       >> "$GITHUB_OUTPUT"
+          echo "SHA256: $SHA256"
+          echo "URL:    $URL"
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: simpletoolsindia/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Write updated formula
+        env:
+          TAG: ${{ steps.tarball.outputs.tag }}
+          SHA256: ${{ steps.tarball.outputs.sha256 }}
+          URL: ${{ steps.tarball.outputs.url }}
+        run: |
+          mkdir -p homebrew-tap/Formula
+          cat > homebrew-tap/Formula/code-buddy.rb << 'FORMULA'
+          # Auto-generated by GitHub Actions on release.
+          # Do not edit manually — update via a new tag push.
+
+          class CodeBuddy < Formula
+            desc "AI coding assistant for your terminal — Claude Code-style TUI with Ollama, LM Studio, OpenRouter and more"
+            homepage "https://github.com/simpletoolsindia/code-buddy"
+            url "ENV_URL"
+            sha256 "ENV_SHA256"
+            license "MIT"
+            version "ENV_TAG"
+            head "https://github.com/simpletoolsindia/code-buddy.git", branch: "main"
+
+            bottle :unneeded
+
+            depends_on "rust" => :build
+
+            def install
+              system "cargo", "install",
+                "--path", "crates/cli",
+                "--root", prefix,
+                "--locked"
+            end
+
+            def caveats
+              <<~EOS
+                Run `code-buddy` to start. The setup wizard launches on first run.
+
+                Enable web search (optional):
+                  code-buddy config set brave_api_key YOUR_KEY
+
+                Config: ~/.config/code-buddy/config.toml
+              EOS
+            end
+
+            test do
+              assert_match "code-buddy", shell_output("#{bin}/code-buddy --version")
+            end
+          end
+          FORMULA
+
+          # Substitute real values (sed avoids heredoc quoting issues)
+          sed -i "s|ENV_URL|${URL}|g"       homebrew-tap/Formula/code-buddy.rb
+          sed -i "s|ENV_SHA256|${SHA256}|g" homebrew-tap/Formula/code-buddy.rb
+          sed -i "s|ENV_TAG|${TAG#v}|g"     homebrew-tap/Formula/code-buddy.rb
+
+          echo "=== Formula ==="
+          cat homebrew-tap/Formula/code-buddy.rb
+
+      - name: Commit and push to tap
+        run: |
+          cd homebrew-tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/code-buddy.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore: update code-buddy formula to ${{ github.ref_name }}"
+          git push
+          echo "✔ Homebrew tap updated for ${{ github.ref_name }}"
