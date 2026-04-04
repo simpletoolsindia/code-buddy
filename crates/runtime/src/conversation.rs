@@ -380,6 +380,21 @@ impl ConversationRuntime {
             total_output_tokens = total_output_tokens.saturating_add(output_toks);
             iterations += 1;
 
+            // Strict no-tool mode: if no tools are registered, the model
+            // should not emit tool calls (none were advertised).  If it does
+            // anyway, ignore them rather than attempting to execute them
+            // against an empty registry (which would surface a confusing
+            // "unknown tool" error to the user).
+            let tool_calls = if !has_tools && !tool_calls.is_empty() {
+                warn!(
+                    count = tool_calls.len(),
+                    "model emitted tool calls but no tools are registered; ignoring"
+                );
+                vec![]
+            } else {
+                tool_calls
+            };
+
             if tool_calls.is_empty() {
                 if !response_text.is_empty() {
                     self.history
@@ -444,7 +459,7 @@ impl ConversationRuntime {
             .provider
             .send(request)
             .await
-            .map_err(transport_to_runtime)?;
+            .map_err(|e| self.transport_err(e))?;
 
         let text = response.text_content();
         let input_toks = response.usage.input_tokens;
@@ -471,7 +486,7 @@ impl ConversationRuntime {
             .provider
             .stream(&stream_request)
             .await
-            .map_err(transport_to_runtime)?;
+            .map_err(|e| self.transport_err(e))?;
 
         let mut acc = StreamingToolCallAccumulator::new();
         let mut response_text = String::new();
@@ -479,7 +494,7 @@ impl ConversationRuntime {
         let mut output_toks: u32 = 0;
 
         loop {
-            match source.next_event().await.map_err(transport_to_runtime)? {
+            match source.next_event().await.map_err(|e| self.transport_err(e))? {
                 None => break,
                 Some(StreamEvent::MessageStop) => break,
                 Some(StreamEvent::Usage(u)) => {
@@ -509,11 +524,15 @@ impl ConversationRuntime {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-fn transport_to_runtime(err: TransportError) -> RuntimeError {
-    RuntimeError::Provider(ProviderError::Transport {
-        provider: "provider".to_string(),
-        source: err,
-    })
+impl ConversationRuntime {
+    /// Convert a [`TransportError`] into a [`RuntimeError`], preserving the
+    /// real provider name so error messages identify which backend failed.
+    fn transport_err(&self, err: TransportError) -> RuntimeError {
+        RuntimeError::Provider(ProviderError::Transport {
+            provider: self.provider.name().to_string(),
+            source: err,
+        })
+    }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -947,13 +966,18 @@ mod tests {
 
     // ── Regression: Bug §4 — silent API key failure ───────────────────────────
 
+    /// Regression: Bug §4 — provider name is preserved in transport errors.
+    ///
+    /// `transport_err` is now a method on `ConversationRuntime` so it can
+    /// embed `self.provider.name()` rather than the hardcoded string "provider".
     #[test]
-    fn transport_to_runtime_wraps_missing_credentials() {
+    fn transport_err_preserves_provider_name() {
+        let rt = make_runtime(vec![]);
         let err = TransportError::MissingCredentials {
             provider: "OpenRouter".to_string(),
             env_var: "OPENROUTER_API_KEY".to_string(),
         };
-        let rt_err = transport_to_runtime(err);
+        let rt_err = rt.transport_err(err);
         assert!(matches!(rt_err, RuntimeError::Provider(_)));
         let msg = rt_err.to_string();
         assert!(
