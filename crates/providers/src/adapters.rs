@@ -29,10 +29,12 @@ impl LmStudioProvider {
     /// Create a new LM Studio adapter.
     ///
     /// `base_url` defaults to `http://localhost:1234/v1` when `None`.
+    /// `max_retries` is clamped to 3 per spec.
     #[must_use]
-    pub fn new(base_url: Option<String>, timeout: Duration) -> Self {
+    pub fn new(base_url: Option<String>, timeout: Duration, max_retries: u32) -> Self {
         let cfg = AdapterConfig::lm_studio()
             .with_timeout(timeout)
+            .with_max_retries(max_retries)
             .with_base_url_override(
                 base_url.unwrap_or_else(|| "http://localhost:1234/v1".to_string()),
             );
@@ -66,10 +68,12 @@ impl Provider for LmStudioProvider {
 pub struct OpenRouterProvider(OpenAiCompatAdapter);
 
 impl OpenRouterProvider {
-    /// Create a new OpenRouter adapter.
+    /// Create a new OpenRouter adapter. `max_retries` is clamped to 3.
     #[must_use]
-    pub fn new(api_key: impl Into<String>, timeout: Duration) -> Self {
-        let cfg = AdapterConfig::openrouter(api_key).with_timeout(timeout);
+    pub fn new(api_key: impl Into<String>, timeout: Duration, max_retries: u32) -> Self {
+        let cfg = AdapterConfig::openrouter(api_key)
+            .with_timeout(timeout)
+            .with_max_retries(max_retries);
         Self(OpenAiCompatAdapter::new(cfg))
     }
 
@@ -79,9 +83,11 @@ impl OpenRouterProvider {
         api_key: impl Into<String>,
         endpoint: impl Into<String>,
         timeout: Duration,
+        max_retries: u32,
     ) -> Self {
         let cfg = AdapterConfig::openrouter(api_key)
             .with_timeout(timeout)
+            .with_max_retries(max_retries)
             .with_base_url_override(endpoint.into());
         Self(OpenAiCompatAdapter::new(cfg))
     }
@@ -113,10 +119,12 @@ impl Provider for OpenRouterProvider {
 pub struct NvidiaProvider(OpenAiCompatAdapter);
 
 impl NvidiaProvider {
-    /// Create a new NVIDIA NIM adapter.
+    /// Create a new NVIDIA NIM adapter. `max_retries` is clamped to 3.
     #[must_use]
-    pub fn new(api_key: impl Into<String>, timeout: Duration) -> Self {
-        let cfg = AdapterConfig::nvidia(api_key).with_timeout(timeout);
+    pub fn new(api_key: impl Into<String>, timeout: Duration, max_retries: u32) -> Self {
+        let cfg = AdapterConfig::nvidia(api_key)
+            .with_timeout(timeout)
+            .with_max_retries(max_retries);
         Self(OpenAiCompatAdapter::new(cfg))
     }
 
@@ -126,9 +134,11 @@ impl NvidiaProvider {
         api_key: impl Into<String>,
         endpoint: impl Into<String>,
         timeout: Duration,
+        max_retries: u32,
     ) -> Self {
         let cfg = AdapterConfig::nvidia(api_key)
             .with_timeout(timeout)
+            .with_max_retries(max_retries)
             .with_base_url_override(endpoint.into());
         Self(OpenAiCompatAdapter::new(cfg))
     }
@@ -160,10 +170,12 @@ impl Provider for NvidiaProvider {
 pub struct OpenAiCompatProvider(OpenAiCompatAdapter);
 
 impl OpenAiCompatProvider {
-    /// Create a new OpenAI adapter.
+    /// Create a new OpenAI adapter. `max_retries` is clamped to 3.
     #[must_use]
-    pub fn new(api_key: impl Into<String>, timeout: Duration) -> Self {
-        let cfg = AdapterConfig::openai(api_key).with_timeout(timeout);
+    pub fn new(api_key: impl Into<String>, timeout: Duration, max_retries: u32) -> Self {
+        let cfg = AdapterConfig::openai(api_key)
+            .with_timeout(timeout)
+            .with_max_retries(max_retries);
         Self(OpenAiCompatAdapter::new(cfg))
     }
 
@@ -173,9 +185,11 @@ impl OpenAiCompatProvider {
         api_key: impl Into<String>,
         base_url: impl Into<String>,
         timeout: Duration,
+        max_retries: u32,
     ) -> Self {
         let cfg = AdapterConfig::openai(api_key)
             .with_timeout(timeout)
+            .with_max_retries(max_retries)
             .with_base_url_override(base_url.into());
         Self(OpenAiCompatAdapter::new(cfg))
     }
@@ -211,14 +225,18 @@ impl CustomLocalProvider {
     /// Create a new custom local adapter.
     ///
     /// `api_key` may be empty if the endpoint does not require authentication.
+    /// `max_retries` is clamped to 3.
     #[must_use]
     pub fn new(
         name: impl Into<String>,
         base_url: impl Into<String>,
         api_key: impl Into<String>,
         timeout: Duration,
+        max_retries: u32,
     ) -> Self {
-        let cfg = AdapterConfig::custom(name, base_url, api_key).with_timeout(timeout);
+        let cfg = AdapterConfig::custom(name, base_url, api_key)
+            .with_timeout(timeout)
+            .with_max_retries(max_retries);
         Self(OpenAiCompatAdapter::new(cfg))
     }
 }
@@ -249,38 +267,47 @@ mod tests {
 
     #[test]
     fn lm_studio_provider_name() {
-        let p = LmStudioProvider::new(None, Duration::from_secs(30));
+        let p = LmStudioProvider::new(None, Duration::from_secs(30), 3);
         assert_eq!(p.name(), "LM Studio");
     }
 
     #[test]
     fn lm_studio_provider_custom_url() {
-        let p =
-            LmStudioProvider::new(Some("http://localhost:5555/v1".to_string()), Duration::from_secs(30));
+        let p = LmStudioProvider::new(
+            Some("http://localhost:5555/v1".to_string()),
+            Duration::from_secs(30),
+            3,
+        );
         assert_eq!(p.name(), "LM Studio");
     }
 
     #[test]
     fn openrouter_provider_name() {
-        let p = OpenRouterProvider::new("sk-test", Duration::from_secs(30));
+        let p = OpenRouterProvider::new("sk-test", Duration::from_secs(30), 3);
         assert_eq!(p.name(), "OpenRouter");
     }
 
     #[test]
     fn nvidia_provider_name() {
-        let p = NvidiaProvider::new("nvapi-test", Duration::from_secs(30));
+        let p = NvidiaProvider::new("nvapi-test", Duration::from_secs(30), 3);
         assert_eq!(p.name(), "NVIDIA");
     }
 
     #[test]
     fn openai_compat_provider_name() {
-        let p = OpenAiCompatProvider::new("sk-test", Duration::from_secs(30));
+        let p = OpenAiCompatProvider::new("sk-test", Duration::from_secs(30), 3);
         assert_eq!(p.name(), "OpenAI");
     }
 
     #[test]
     fn custom_local_provider_name() {
-        let p = CustomLocalProvider::new("Ollama", "http://localhost:11434/v1", "", Duration::from_secs(30));
+        let p = CustomLocalProvider::new(
+            "Ollama",
+            "http://localhost:11434/v1",
+            "",
+            Duration::from_secs(30),
+            3,
+        );
         assert_eq!(p.name(), "Ollama");
     }
 }

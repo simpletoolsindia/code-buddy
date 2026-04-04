@@ -27,10 +27,12 @@ impl ProviderRegistry {
         let timeout = Duration::from_secs(config.timeout_seconds);
         let endpoint = config.endpoint.as_deref();
 
+        let max_retries = config.max_retries;
+
         let provider: Box<dyn Provider> = match config.provider.as_str() {
             "lm-studio" => {
                 let base_url = endpoint.map(str::to_string);
-                Box::new(LmStudioProvider::new(base_url, timeout))
+                Box::new(LmStudioProvider::new(base_url, timeout, max_retries))
             }
             "openrouter" => {
                 let api_key = config
@@ -43,9 +45,9 @@ impl ProviderRegistry {
                         env_var: "OPENROUTER_API_KEY".to_string(),
                     })?;
                 if let Some(url) = endpoint {
-                    Box::new(OpenRouterProvider::with_endpoint(api_key, url, timeout))
+                    Box::new(OpenRouterProvider::with_endpoint(api_key, url, timeout, max_retries))
                 } else {
-                    Box::new(OpenRouterProvider::new(api_key, timeout))
+                    Box::new(OpenRouterProvider::new(api_key, timeout, max_retries))
                 }
             }
             "nvidia" => {
@@ -59,9 +61,9 @@ impl ProviderRegistry {
                         env_var: "NVIDIA_API_KEY".to_string(),
                     })?;
                 if let Some(url) = endpoint {
-                    Box::new(NvidiaProvider::with_endpoint(api_key, url, timeout))
+                    Box::new(NvidiaProvider::with_endpoint(api_key, url, timeout, max_retries))
                 } else {
-                    Box::new(NvidiaProvider::new(api_key, timeout))
+                    Box::new(NvidiaProvider::new(api_key, timeout, max_retries))
                 }
             }
             "openai" => {
@@ -75,9 +77,9 @@ impl ProviderRegistry {
                         env_var: "OPENAI_API_KEY".to_string(),
                     })?;
                 if let Some(url) = endpoint {
-                    Box::new(OpenAiCompatProvider::with_base_url(api_key, url, timeout))
+                    Box::new(OpenAiCompatProvider::with_base_url(api_key, url, timeout, max_retries))
                 } else {
-                    Box::new(OpenAiCompatProvider::new(api_key, timeout))
+                    Box::new(OpenAiCompatProvider::new(api_key, timeout, max_retries))
                 }
             }
             "custom" => {
@@ -91,7 +93,7 @@ impl ProviderRegistry {
                     .clone()
                     .or_else(|| std::env::var("CUSTOM_API_KEY").ok())
                     .unwrap_or_default();
-                Box::new(CustomLocalProvider::new("Custom", base_url, api_key, timeout))
+                Box::new(CustomLocalProvider::new("Custom", base_url, api_key, timeout, max_retries))
             }
             other => {
                 return Err(TransportError::Config {

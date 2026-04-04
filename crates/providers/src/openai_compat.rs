@@ -640,6 +640,10 @@ impl OpenAiCompatAdapter {
         let max_backoff = Duration::from_secs(2);
 
         let mut attempt = 0u32;
+        // last_retryable_error is set whenever we encounter a transient failure;
+        // used to populate RetriesExhausted after the final attempt.
+        let mut last_retryable_error: Option<TransportError> = None;
+
         loop {
             attempt += 1;
             debug!(
@@ -664,18 +668,34 @@ impl OpenAiCompatAdapter {
                     }
                     let status_code = status.as_u16();
                     let is_retryable = status_code >= 500;
-                    if is_retryable && attempt <= self.config.max_retries {
-                        let backoff = backoff_duration(attempt, initial_backoff, max_backoff);
-                        warn!(
-                            provider = %self.config.provider_name,
-                            status = status_code,
-                            attempt = attempt,
-                            ?backoff,
-                            "retryable server error, backing off"
-                        );
-                        tokio::time::sleep(backoff).await;
-                        continue;
+                    if is_retryable {
+                        let body_text = response.text().await.unwrap_or_default();
+                        let err = TransportError::ApiError {
+                            provider: self.config.provider_name.clone(),
+                            status: status_code,
+                            message: body_text,
+                        };
+                        if attempt <= self.config.max_retries {
+                            let backoff = backoff_duration(attempt, initial_backoff, max_backoff);
+                            warn!(
+                                provider = %self.config.provider_name,
+                                status = status_code,
+                                attempt = attempt,
+                                ?backoff,
+                                "retryable server error, backing off"
+                            );
+                            last_retryable_error = Some(err);
+                            tokio::time::sleep(backoff).await;
+                            continue;
+                        }
+                        // Retries exhausted on a retryable error.
+                        return Err(TransportError::RetriesExhausted {
+                            provider: self.config.provider_name.clone(),
+                            attempts: attempt,
+                            last_error: err.to_string(),
+                        });
                     }
+                    // Non-retryable HTTP error — return immediately.
                     let body_text = response.text().await.unwrap_or_default();
                     return Err(TransportError::ApiError {
                         provider: self.config.provider_name.clone(),
@@ -688,18 +708,32 @@ impl OpenAiCompatAdapter {
                         e,
                         TransportError::Timeout { .. } | TransportError::Network { .. }
                     );
-                    if is_retryable && attempt <= self.config.max_retries {
-                        let backoff = backoff_duration(attempt, initial_backoff, max_backoff);
-                        warn!(
-                            provider = %self.config.provider_name,
-                            error = %e,
-                            attempt = attempt,
-                            ?backoff,
-                            "retryable network error, backing off"
-                        );
-                        tokio::time::sleep(backoff).await;
-                        continue;
+                    if is_retryable {
+                        if attempt <= self.config.max_retries {
+                            let backoff = backoff_duration(attempt, initial_backoff, max_backoff);
+                            warn!(
+                                provider = %self.config.provider_name,
+                                error = %e,
+                                attempt = attempt,
+                                ?backoff,
+                                "retryable network error, backing off"
+                            );
+                            last_retryable_error = Some(e);
+                            tokio::time::sleep(backoff).await;
+                            continue;
+                        }
+                        // Retries exhausted on a transient network/timeout error.
+                        let last_msg = last_retryable_error
+                            .as_ref()
+                            .map(|e| e.to_string())
+                            .unwrap_or_else(|| e.to_string());
+                        return Err(TransportError::RetriesExhausted {
+                            provider: self.config.provider_name.clone(),
+                            attempts: attempt,
+                            last_error: last_msg,
+                        });
                     }
+                    // Non-retryable error — return immediately.
                     return Err(e);
                 }
             }
@@ -1191,5 +1225,181 @@ mod tests {
 
         let stop = src.next_event().await.unwrap();
         assert!(matches!(stop, Some(StreamEvent::MessageStop)));
+    }
+
+    // ── Retry / timeout integration tests ────────────────────────────────────
+    //
+    // These tests start a real in-process HTTP server using tokio's TcpListener
+    // and verify the retry/backoff/RetriesExhausted behavior deterministically
+    // without any additional test-crate dependencies.
+
+    /// Start a tiny HTTP server that returns a fixed sequence of (status, body) responses
+    /// and then closes. Returns the server base URL (e.g. `http://127.0.0.1:PORT/v1`).
+    ///
+    /// Each incoming TCP connection receives one response from the front of the queue.
+    /// `Connection: close` ensures reqwest opens a fresh connection for each retry.
+    async fn start_mock_http(responses: Vec<(u16, Option<String>)>) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        use std::sync::{Arc, Mutex};
+
+        fn status_line(code: u16) -> &'static str {
+            match code {
+                200 => "200 OK",
+                400 => "400 Bad Request",
+                401 => "401 Unauthorized",
+                404 => "404 Not Found",
+                429 => "429 Too Many Requests",
+                500 => "500 Internal Server Error",
+                503 => "503 Service Unavailable",
+                _ => "500 Internal Server Error",
+            }
+        }
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let port = listener.local_addr().expect("local addr").port();
+        let queue = Arc::new(Mutex::new(responses));
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else { break };
+                let queue = Arc::clone(&queue);
+                tokio::spawn(async move {
+                    // Drain the incoming HTTP request (we ignore its content).
+                    let mut buf = vec![0u8; 8192];
+                    let _ = stream.read(&mut buf).await;
+
+                    let entry = queue.lock().expect("lock").drain(..1).next();
+                    let Some((status, body)) = entry else { return };
+
+                    let status_str = status_line(status);
+                    let response = if let Some(ref b) = body {
+                        format!(
+                            "HTTP/1.1 {status_str}\r\n\
+                             Content-Type: application/json\r\n\
+                             Content-Length: {len}\r\n\
+                             Connection: close\r\n\
+                             \r\n{b}",
+                            len = b.len()
+                        )
+                    } else {
+                        format!(
+                            "HTTP/1.1 {status_str}\r\n\
+                             Content-Length: 0\r\n\
+                             Connection: close\r\n\
+                             \r\n"
+                        )
+                    };
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        format!("http://127.0.0.1:{port}/v1")
+    }
+
+    fn success_body(model: &str) -> String {
+        serde_json::json!({
+            "id": "chatcmpl-test",
+            "object": "chat.completion",
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "pong"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6}
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn retry_on_5xx_then_succeeds() {
+        // Server returns 503 twice, then 200. With max_retries=3, should succeed.
+        let base_url = start_mock_http(vec![
+            (503, None),
+            (503, None),
+            (200, Some(success_body("test-model"))),
+        ])
+        .await;
+
+        // Use max_retries=3 but disable sleep by setting a tiny timeout (the
+        // retries happen so fast in tests that real sleeps would bloat CI time).
+        // We override backoff implicitly: with max_retries=3, 3 attempts, the
+        // third attempt succeeds — sleep is real but tiny in tests.
+        let cfg = AdapterConfig::lm_studio()
+            .with_base_url_override(base_url)
+            .with_max_retries(3)
+            .with_timeout(Duration::from_secs(5));
+
+        let adapter = OpenAiCompatAdapter::new(cfg);
+        let req = MessageRequest::simple("test-model", "ping");
+        let result = adapter.send(&req).await;
+
+        assert!(result.is_ok(), "expected success after retries, got: {result:?}");
+        let resp = result.unwrap();
+        assert_eq!(resp.text_content(), "pong");
+    }
+
+    #[tokio::test]
+    async fn no_retry_on_4xx() {
+        // Server returns 401 — non-retryable, should return immediately without
+        // consuming more responses.
+        let base_url = start_mock_http(vec![
+            (401, None),
+            (200, Some(success_body("test-model"))), // should NOT be consumed
+        ])
+        .await;
+
+        let cfg = AdapterConfig::lm_studio()
+            .with_base_url_override(base_url)
+            .with_max_retries(3)
+            .with_timeout(Duration::from_secs(5));
+
+        let adapter = OpenAiCompatAdapter::new(cfg);
+        let req = MessageRequest::simple("test-model", "ping");
+        let result = adapter.send(&req).await;
+
+        // Must fail with an ApiError (not retried — only one attempt)
+        assert!(result.is_err(), "expected error for 401");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, TransportError::ApiError { status: 401, .. }),
+            "expected ApiError(401), got: {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn retries_exhausted_emits_structured_error() {
+        // Server always returns 503. With max_retries=1, two requests total
+        // (1 initial + 1 retry), then RetriesExhausted.
+        let base_url = start_mock_http(vec![
+            (503, None),
+            (503, None),
+            (503, None), // safety — should not be reached
+        ])
+        .await;
+
+        let cfg = AdapterConfig::lm_studio()
+            .with_base_url_override(base_url)
+            .with_max_retries(1) // 1 initial + 1 retry = 2 total attempts
+            .with_timeout(Duration::from_secs(5));
+
+        let adapter = OpenAiCompatAdapter::new(cfg);
+        let req = MessageRequest::simple("test-model", "ping");
+        let result = adapter.send(&req).await;
+
+        assert!(result.is_err(), "expected error after retries exhausted");
+        let err = result.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                TransportError::RetriesExhausted {
+                    attempts: 2, // 1 initial + 1 retry
+                    ..
+                }
+            ),
+            "expected RetriesExhausted(attempts=2), got: {err:?}"
+        );
     }
 }
