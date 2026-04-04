@@ -220,12 +220,42 @@ Guidelines:
         let mut calls = Vec::new();
         let mut seen_calls: HashMap<String, bool> = HashMap::new();
 
-        // Try to parse as JSON with tool_calls array
-        if let Ok(json) = serde_json::from_str::<Value>(content) {
-            if let Some(tc) = json.get("tool_calls").and_then(|v| v.as_array()) {
-                for call in tc {
-                    if let Some(name) = call.get("name").and_then(|v| v.as_str()) {
-                        let args = call.get("arguments").or(call.get("args")).unwrap_or(&serde_json::Value::Null);
+        // Extract JSON from code blocks first
+        let code_block_re = regex::Regex::new(r#"```(?:json)?\s*([\s\S]*?)```"#).unwrap();
+        let mut json_content = content.to_string();
+
+        for cap in code_block_re.captures_iter(content) {
+            if let Some(block) = cap.get(1) {
+                json_content = block.as_str().to_string();
+                break; // Use first JSON block found
+            }
+        }
+
+        // Try to parse as JSON
+        if let Ok(json) = serde_json::from_str::<Value>(&json_content) {
+            // Handle array of tool calls: [ { "tool": "name", ... }, ... ]
+            if let Some(arr) = json.as_array() {
+                for item in arr {
+                    if let Some(tool_name) = item.get("tool").and_then(|v| v.as_str()) {
+                        let args = item.get("parameters")
+                            .or(item.get("arguments"))
+                            .or(item.get("args"))
+                            .unwrap_or(&serde_json::Value::Null);
+                        let call_id = format!("{}-{:?}", tool_name, args);
+
+                        if let std::collections::hash_map::Entry::Vacant(e) = seen_calls.entry(call_id) {
+                            e.insert(true);
+                            calls.push(serde_json::json!({
+                                "name": tool_name,
+                                "arguments": args
+                            }));
+                        }
+                    } else if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
+                        // Handle { "name": "tool", "arguments": ... } format
+                        let args = item.get("arguments")
+                            .or(item.get("args"))
+                            .or(item.get("parameters"))
+                            .unwrap_or(&serde_json::Value::Null);
                         let call_id = format!("{}-{:?}", name, args);
 
                         if let std::collections::hash_map::Entry::Vacant(e) = seen_calls.entry(call_id) {
@@ -236,6 +266,44 @@ Guidelines:
                             }));
                         }
                     }
+                }
+            }
+
+            // Handle tool_calls array: { "tool_calls": [ { "name": "tool", ... }, ... ] }
+            if let Some(tc) = json.get("tool_calls").and_then(|v| v.as_array()) {
+                for call in tc {
+                    if let Some(name) = call.get("name").and_then(|v| v.as_str()) {
+                        let args = call.get("arguments")
+                            .or(call.get("args"))
+                            .or(call.get("parameters"))
+                            .unwrap_or(&serde_json::Value::Null);
+                        let call_id = format!("{}-{:?}", name, args);
+
+                        if let std::collections::hash_map::Entry::Vacant(e) = seen_calls.entry(call_id) {
+                            e.insert(true);
+                            calls.push(serde_json::json!({
+                                "name": name,
+                                "arguments": args
+                            }));
+                        }
+                    }
+                }
+            }
+
+            // Handle single tool call: { "tool": "name", "parameters": {...} }
+            if let Some(tool_name) = json.get("tool").and_then(|v| v.as_str()) {
+                let args = json.get("parameters")
+                    .or(json.get("arguments"))
+                    .or(json.get("args"))
+                    .unwrap_or(&serde_json::Value::Null);
+                let call_id = format!("{}-{:?}", tool_name, args);
+
+                if let std::collections::hash_map::Entry::Vacant(e) = seen_calls.entry(call_id) {
+                    e.insert(true);
+                    calls.push(serde_json::json!({
+                        "name": tool_name,
+                        "arguments": args
+                    }));
                 }
             }
         }
@@ -357,6 +425,47 @@ Guidelines:
                     calls.push(serde_json::json!({
                         "name": "bash",
                         "arguments": cmd
+                    }));
+                }
+            }
+        }
+
+        // Look for call:tool{key: "value"} style (Gemma/NVIDIA format)
+        // Examples: call:bash{command: "ls"} or call:read{path: "file.txt"}
+        let gemma_re = regex::Regex::new(r#"call:(\w+)\s*\{([^}]+)\}"#).unwrap();
+        for cap in gemma_re.captures_iter(content) {
+            let tool_name = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            let args_str = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+
+            // Parse the arguments from key: "value" format
+            let key_re = regex::Regex::new(r#"(\w+)\s*:\s*["']([^"']*)["']"#).unwrap();
+            let mut args_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+            for arg_cap in key_re.captures_iter(args_str) {
+                if let (Some(key), Some(val)) = (arg_cap.get(1), arg_cap.get(2)) {
+                    args_map.insert(key.as_str().to_string(), val.as_str().to_string());
+                }
+            }
+
+            if !args_map.is_empty() {
+                let key = format!("{}:{:?}", tool_name, args_map);
+                if let std::collections::hash_map::Entry::Vacant(e) = seen.entry(key.clone()) {
+                    e.insert(true);
+
+                    // Convert to our standard format
+                    let arguments = if tool_name == "bash" || tool_name == "read" || tool_name == "write" || tool_name == "edit" || tool_name == "glob" || tool_name == "grep" {
+                        if let Some(v) = args_map.get("command").or(args_map.get("path")).or(args_map.get("pattern")).or(args_map.get("file")) {
+                            serde_json::json!(v)
+                        } else {
+                            serde_json::json!(args_map)
+                        }
+                    } else {
+                        serde_json::json!(args_map)
+                    };
+
+                    calls.push(serde_json::json!({
+                        "name": tool_name,
+                        "arguments": arguments
                     }));
                 }
             }
