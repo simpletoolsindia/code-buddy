@@ -123,3 +123,209 @@ pub struct InstallArgs {
     #[arg(long)]
     pub verify_only: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    /// Parse CLI arguments from a string slice (simulates shell argv).
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("code-buddy").chain(args.iter().copied()))
+    }
+
+    // ── Subcommand dispatch ───────────────────────────────────────────────────
+
+    #[test]
+    fn no_subcommand_is_valid() {
+        let cli = parse(&[]).expect("bare invocation should parse");
+        assert!(cli.subcommand.is_none());
+    }
+
+    #[test]
+    fn ask_subcommand_parses() {
+        let cli = parse(&["ask", "What", "is", "Rust?"]).expect("ask should parse");
+        match cli.subcommand {
+            Some(Subcommand::Ask(args)) => {
+                assert_eq!(args.prompt, vec!["What", "is", "Rust?"]);
+            }
+            other => panic!("expected Ask, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ask_single_quoted_arg_is_one_element() {
+        let cli = parse(&["ask", "What is Rust?"]).expect("ask should parse");
+        match cli.subcommand {
+            Some(Subcommand::Ask(args)) => {
+                assert_eq!(args.prompt, vec!["What is Rust?"]);
+            }
+            other => panic!("expected Ask, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ask_with_no_tools_flag() {
+        let cli = parse(&["ask", "--no-tools", "hello"]).expect("should parse");
+        if let Some(Subcommand::Ask(args)) = cli.subcommand {
+            assert!(args.no_tools);
+        } else {
+            panic!("expected Ask subcommand");
+        }
+    }
+
+    #[test]
+    fn run_subcommand_parses() {
+        let cli = parse(&["run"]).expect("run should parse");
+        assert!(matches!(cli.subcommand, Some(Subcommand::Run(_))));
+    }
+
+    #[test]
+    fn run_with_no_tools_flag() {
+        let cli = parse(&["run", "--no-tools"]).expect("should parse");
+        if let Some(Subcommand::Run(args)) = cli.subcommand {
+            assert!(args.no_tools);
+        } else {
+            panic!("expected Run subcommand");
+        }
+    }
+
+    #[test]
+    fn config_show_subcommand_parses() {
+        let cli = parse(&["config", "show"]).expect("config show should parse");
+        if let Some(Subcommand::Config(args)) = cli.subcommand {
+            assert!(matches!(args.action, ConfigAction::Show));
+        } else {
+            panic!("expected Config subcommand");
+        }
+    }
+
+    #[test]
+    fn config_get_subcommand_parses() {
+        let cli = parse(&["config", "get", "provider"]).expect("config get should parse");
+        if let Some(Subcommand::Config(args)) = cli.subcommand {
+            if let ConfigAction::Get { field } = args.action {
+                assert_eq!(field, "provider");
+            } else {
+                panic!("expected ConfigAction::Get");
+            }
+        } else {
+            panic!("expected Config subcommand");
+        }
+    }
+
+    #[test]
+    fn config_set_subcommand_parses() {
+        let cli =
+            parse(&["config", "set", "provider", "openai"]).expect("config set should parse");
+        if let Some(Subcommand::Config(args)) = cli.subcommand {
+            if let ConfigAction::Set { field, value } = args.action {
+                assert_eq!(field, "provider");
+                assert_eq!(value, "openai");
+            } else {
+                panic!("expected ConfigAction::Set");
+            }
+        } else {
+            panic!("expected Config subcommand");
+        }
+    }
+
+    #[test]
+    fn config_path_subcommand_parses() {
+        let cli = parse(&["config", "path"]).expect("config path should parse");
+        assert!(matches!(
+            cli.subcommand,
+            Some(Subcommand::Config(ConfigArgs {
+                action: ConfigAction::Path
+            }))
+        ));
+    }
+
+    #[test]
+    fn install_subcommand_parses() {
+        let cli = parse(&["install"]).expect("install should parse");
+        assert!(matches!(cli.subcommand, Some(Subcommand::Install(_))));
+    }
+
+    #[test]
+    fn install_verify_only_flag() {
+        let cli = parse(&["install", "--verify-only"]).expect("should parse");
+        if let Some(Subcommand::Install(args)) = cli.subcommand {
+            assert!(args.verify_only);
+        } else {
+            panic!("expected Install subcommand");
+        }
+    }
+
+    // ── Global flags ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn provider_flag_short() {
+        let cli = parse(&["-p", "openrouter", "ask", "hi"]).expect("should parse");
+        assert_eq!(cli.provider.as_deref(), Some("openrouter"));
+    }
+
+    #[test]
+    fn provider_flag_long() {
+        let cli = parse(&["--provider", "nvidia", "ask", "hi"]).expect("should parse");
+        assert_eq!(cli.provider.as_deref(), Some("nvidia"));
+    }
+
+    #[test]
+    fn model_flag_short() {
+        let cli = parse(&["-m", "mistral-7b", "run"]).expect("should parse");
+        assert_eq!(cli.model.as_deref(), Some("mistral-7b"));
+    }
+
+    #[test]
+    fn model_flag_long() {
+        let cli = parse(&["--model", "llama3", "run"]).expect("should parse");
+        assert_eq!(cli.model.as_deref(), Some("llama3"));
+    }
+
+    #[test]
+    fn debug_flag() {
+        let cli = parse(&["--debug", "run"]).expect("should parse");
+        assert!(cli.debug);
+    }
+
+    #[test]
+    fn no_color_flag() {
+        let cli = parse(&["--no-color", "run"]).expect("should parse");
+        assert!(cli.no_color);
+    }
+
+    #[test]
+    fn output_text_flag() {
+        let cli = parse(&["--output", "text", "run"]).expect("should parse");
+        assert!(matches!(cli.output, Some(OutputFormat::Text)));
+    }
+
+    #[test]
+    fn output_json_flag() {
+        let cli = parse(&["--output", "json", "ask", "hi"]).expect("should parse");
+        assert!(matches!(cli.output, Some(OutputFormat::Json)));
+    }
+
+    #[test]
+    fn flags_before_subcommand() {
+        let cli = parse(&["--debug", "--provider", "openrouter", "run"])
+            .expect("flags before subcommand should parse");
+        assert!(cli.debug);
+        assert_eq!(cli.provider.as_deref(), Some("openrouter"));
+        assert!(matches!(cli.subcommand, Some(Subcommand::Run(_))));
+    }
+
+    #[test]
+    fn unknown_subcommand_fails() {
+        assert!(parse(&["foobar"]).is_err(), "unknown subcommand should fail");
+    }
+
+    #[test]
+    fn invalid_output_value_fails() {
+        assert!(
+            parse(&["--output", "csv", "run"]).is_err(),
+            "invalid output format should fail"
+        );
+    }
+}

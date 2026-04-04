@@ -168,7 +168,8 @@ impl AppConfig {
     /// Apply environment variable overrides to the current config.
     ///
     /// Environment variables take precedence over file values.
-    fn apply_env_overrides(&mut self) {
+    /// All config fields are overridable via `CODE_BUDDY_<FIELD_UPPER>`.
+    pub fn apply_env_overrides(&mut self) {
         if let Ok(val) = std::env::var("CODE_BUDDY_API_KEY") {
             if !val.is_empty() {
                 self.api_key = Some(val);
@@ -194,6 +195,37 @@ impl AppConfig {
         }
         if let Ok(val) = std::env::var("CODE_BUDDY_NO_COLOR") {
             self.no_color = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+        }
+        if let Ok(val) = std::env::var("CODE_BUDDY_STREAMING") {
+            self.streaming = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+        }
+        if let Ok(val) = std::env::var("CODE_BUDDY_VERBOSE") {
+            self.verbose = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+        }
+        if let Ok(val) = std::env::var("CODE_BUDDY_TIMEOUT_SECONDS") {
+            if let Ok(v) = val.parse::<u64>() {
+                self.timeout_seconds = v;
+            }
+        }
+        if let Ok(val) = std::env::var("CODE_BUDDY_MAX_RETRIES") {
+            if let Ok(v) = val.parse::<u32>() {
+                self.max_retries = v;
+            }
+        }
+        if let Ok(val) = std::env::var("CODE_BUDDY_MAX_TOKENS") {
+            if let Ok(v) = val.parse::<u32>() {
+                self.max_tokens = Some(v);
+            }
+        }
+        if let Ok(val) = std::env::var("CODE_BUDDY_TEMPERATURE") {
+            if let Ok(v) = val.parse::<f32>() {
+                self.temperature = Some(v);
+            }
+        }
+        if let Ok(val) = std::env::var("CODE_BUDDY_SYSTEM_PROMPT") {
+            if !val.is_empty() {
+                self.system_prompt = Some(val);
+            }
         }
     }
 
@@ -488,6 +520,73 @@ streaming = true
         config.apply_env_overrides();
         assert_eq!(config.api_key.as_deref(), Some("env-test-key"));
         std::env::remove_var("CODE_BUDDY_API_KEY");
+    }
+
+    #[test]
+    fn env_override_timeout_seconds() {
+        std::env::set_var("CODE_BUDDY_TIMEOUT_SECONDS", "120");
+        let mut config = AppConfig::default();
+        config.apply_env_overrides();
+        assert_eq!(config.timeout_seconds, 120);
+        std::env::remove_var("CODE_BUDDY_TIMEOUT_SECONDS");
+    }
+
+    #[test]
+    fn env_override_max_retries() {
+        std::env::set_var("CODE_BUDDY_MAX_RETRIES", "5");
+        let mut config = AppConfig::default();
+        config.apply_env_overrides();
+        assert_eq!(config.max_retries, 5);
+        std::env::remove_var("CODE_BUDDY_MAX_RETRIES");
+    }
+
+    #[test]
+    fn env_override_max_tokens() {
+        std::env::set_var("CODE_BUDDY_MAX_TOKENS", "2048");
+        let mut config = AppConfig::default();
+        config.apply_env_overrides();
+        assert_eq!(config.max_tokens, Some(2048));
+        std::env::remove_var("CODE_BUDDY_MAX_TOKENS");
+    }
+
+    #[test]
+    fn env_override_temperature() {
+        std::env::set_var("CODE_BUDDY_TEMPERATURE", "0.5");
+        let mut config = AppConfig::default();
+        config.apply_env_overrides();
+        assert!((config.temperature.unwrap() - 0.5_f32).abs() < 1e-6);
+        std::env::remove_var("CODE_BUDDY_TEMPERATURE");
+    }
+
+    #[test]
+    fn env_override_system_prompt() {
+        std::env::set_var("CODE_BUDDY_SYSTEM_PROMPT", "You are a helpful assistant.");
+        let mut config = AppConfig::default();
+        config.apply_env_overrides();
+        assert_eq!(
+            config.system_prompt.as_deref(),
+            Some("You are a helpful assistant.")
+        );
+        std::env::remove_var("CODE_BUDDY_SYSTEM_PROMPT");
+    }
+
+    #[test]
+    fn env_override_streaming() {
+        std::env::set_var("CODE_BUDDY_STREAMING", "false");
+        let mut config = AppConfig::default();
+        config.apply_env_overrides();
+        assert!(!config.streaming);
+        std::env::remove_var("CODE_BUDDY_STREAMING");
+    }
+
+    #[test]
+    fn env_override_invalid_timeout_ignored() {
+        let mut config = AppConfig::default();
+        let original_timeout = config.timeout_seconds;
+        std::env::set_var("CODE_BUDDY_TIMEOUT_SECONDS", "not-a-number");
+        config.apply_env_overrides();
+        assert_eq!(config.timeout_seconds, original_timeout);
+        std::env::remove_var("CODE_BUDDY_TIMEOUT_SECONDS");
     }
 
     #[test]
