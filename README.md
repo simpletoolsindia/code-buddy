@@ -1,66 +1,97 @@
-# Code Buddy ✻
+<div align="center">
 
-> AI coding assistant for your terminal — Claude Code-style TUI, file & shell tools,
-> web search, and support for Ollama, LM Studio, OpenRouter, OpenAI, NVIDIA, and more.
+```
+  ██████╗ ██████╗ ██████╗ ███████╗    ██████╗ ██╗   ██╗██████╗ ██████╗ ██╗   ██╗
+ ██╔════╝██╔═══██╗██╔══██╗██╔════╝    ██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝
+ ██║     ██║   ██║██║  ██║█████╗      ██████╔╝██║   ██║██║  ██║██║  ██║ ╚████╔╝ 
+ ██║     ██║   ██║██║  ██║██╔══╝      ██╔══██╗██║   ██║██║  ██║██║  ██║  ╚██╔╝  
+ ╚██████╗╚██████╔╝██████╔╝███████╗    ██████╔╝╚██████╔╝██████╔╝██████╔╝   ██║   
+  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝    ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝   ╚═╝   
+```
+
+**AI coding assistant for your terminal**
+
+[![CI](https://github.com/simpletoolsindia/code-buddy/actions/workflows/ci.yml/badge.svg)](https://github.com/simpletoolsindia/code-buddy/actions/workflows/ci.yml)
+[![Release](https://github.com/simpletoolsindia/code-buddy/actions/workflows/release.yml/badge.svg)](https://github.com/simpletoolsindia/code-buddy/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
+
+*Claude Code-style TUI · File & shell tools · Web search · Ollama · LM Studio · OpenRouter · OpenAI*
+
+</div>
 
 ---
 
-## Install in One Command
+## Quick Install
 
-### Linux & macOS
+<table>
+<tr>
+<td><b>Linux & macOS</b></td>
+<td>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh
 ```
 
-### Windows (PowerShell)
+</td>
+</tr>
+<tr>
+<td><b>Windows</b></td>
+<td>
 
 ```powershell
 irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 | iex
 ```
 
-### Homebrew
+</td>
+</tr>
+<tr>
+<td><b>Homebrew</b></td>
+<td>
 
 ```bash
 brew install simpletoolsindia/tap/code-buddy
 ```
 
-Or add the tap once and install without the prefix:
-
-```bash
-brew tap simpletoolsindia/tap
-brew install code-buddy
-```
-
-### Cargo
+</td>
+</tr>
+<tr>
+<td><b>Cargo</b></td>
+<td>
 
 ```bash
 cargo install --git https://github.com/simpletoolsindia/code-buddy --bin code-buddy --locked
 ```
 
-> After install, just run `code-buddy` — the setup wizard launches automatically on first run.
+</td>
+</tr>
+</table>
+
+> **Tip:** After install, just run `code-buddy` — the setup wizard launches automatically on first run.
 
 ---
 
-## What it does
+## Features
 
-- **Interactive session** — streams responses from any LLM, right in your terminal
-- **Built-in tools** — read/write files, run shell commands, search the web, fetch pages
-- **Claude Code-style TUI** — coloured banner, live spinner, slash commands (`/tools`, `/status`)
-- **Setup wizard** — one-time guided config: pick provider → model → API keys
-- **Live model list** — auto-fetches available models from Ollama, LM Studio, OpenRouter, OpenAI
-- **Web search** — Brave Search (or SerpAPI fallback) + page fetch with HTML-to-text extraction
+| | |
+|---|---|
+| **Interactive TUI** | Coloured banner, live streaming spinner, slash commands |
+| **Setup wizard** | One-time guided config — pick provider → model → API keys |
+| **Live model list** | Auto-fetches available models from Ollama, LM Studio, OpenRouter, OpenAI |
+| **Built-in tools** | Read/write files, run shell commands, search the web, fetch pages |
+| **Web search** | Brave Search (or SerpAPI fallback) + Firecrawl page extraction |
+| **Multi-provider** | Ollama, LM Studio, OpenRouter, OpenAI, NVIDIA, or any OpenAI-compatible endpoint |
 
 ---
 
 ## Supported Providers
 
-| Provider | Local? | Notes |
-|---|---|---|
-| **Ollama** | Yes | `http://localhost:11434` — models auto-listed |
-| **LM Studio** | Yes | `http://localhost:1234` — models auto-listed |
+| Provider | Type | Notes |
+|:---|:---:|---|
+| **Ollama** | Local | `http://localhost:11434` · models auto-listed |
+| **LM Studio** | Local | `http://localhost:1234` · models auto-listed |
 | **OpenRouter** | Cloud | Hundreds of open & commercial models |
-| **OpenAI** | Cloud | GPT-4o, o3, etc. |
+| **OpenAI** | Cloud | GPT-4o, o3, and more |
 | **NVIDIA** | Cloud | NVIDIA AI Endpoints |
 | **Custom** | Either | Any OpenAI-compatible endpoint |
 
@@ -68,19 +99,19 @@ cargo install --git https://github.com/simpletoolsindia/code-buddy --bin code-bu
 
 ## Usage
 
-### Start a session
+### Start an interactive session
 
 ```bash
-code-buddy          # interactive session in the current directory
+code-buddy
 ```
 
-**Slash commands:**
+#### Slash commands
 
-| Command | Description |
-|---|---|
-| `/tools` | List active tools |
-| `/status` | Provider, model, web tool availability |
-| `/exit` | End session |
+| Command | What it does |
+|:---|:---|
+| `/tools` | List all active tools |
+| `/status` | Show provider, model, and web tool status |
+| `/exit` | End the session |
 
 ### One-shot question
 
@@ -88,13 +119,13 @@ code-buddy          # interactive session in the current directory
 code-buddy ask "How do I reverse a linked list?" --file src/main.rs
 ```
 
-### Config
+### Manage config
 
 ```bash
 code-buddy setup                              # re-run the setup wizard
 code-buddy config show                        # view all settings
-code-buddy config set brave_api_key YOUR_KEY  # update a field
-code-buddy config path                        # location of config file
+code-buddy config set brave_api_key YOUR_KEY  # update a single field
+code-buddy config path                        # show config file location
 ```
 
 ---
@@ -102,21 +133,21 @@ code-buddy config path                        # location of config file
 ## Tools
 
 | Tool | Description |
-|---|---|
-| `read_file` | Read a file |
+|:---|:---|
+| `read_file` | Read any file |
 | `write_file` | Create or overwrite a file |
 | `list_dir` | List directory contents |
 | `run_shell` | Execute a shell command |
-| `web_search` | Search the web (Brave or SerpAPI) |
-| `web_fetch` | Fetch and render a webpage as text |
+| `web_search` | Search the web via Brave or SerpAPI |
+| `web_fetch` | Fetch a webpage and render it as clean text |
 
-### Enable web tools
+### Enable web search
 
 ```bash
 # Brave Search (preferred) — https://brave.com/search/api/
 code-buddy config set brave_api_key YOUR_KEY
 
-# SerpAPI fallback — https://serpapi.com/
+# SerpAPI (fallback) — https://serpapi.com/
 code-buddy config set serpapi_key YOUR_KEY
 
 # Firecrawl (richer extraction, optional) — https://firecrawl.dev/
@@ -128,10 +159,11 @@ code-buddy config set firecrawl_api_key YOUR_KEY
 ## Configuration
 
 Config file: `~/.config/code-buddy/config.toml`
-Every field can be overridden by an environment variable.
 
-| Field | Env var | Default |
-|---|---|---|
+Every field can be overridden with an environment variable.
+
+| Field | Environment Variable | Default |
+|:---|:---|:---|
 | `provider` | `CODE_BUDDY_PROVIDER` | `lm_studio` |
 | `model` | `CODE_BUDDY_MODEL` | `mistral` |
 | `api_key` | `CODE_BUDDY_API_KEY` | — |
@@ -147,9 +179,25 @@ Every field can be overridden by an environment variable.
 
 ---
 
+## Homebrew
+
+The tap at [`simpletoolsindia/homebrew-tap`](https://github.com/simpletoolsindia/homebrew-tap) is automatically updated on every release via GitHub Actions.
+
+```bash
+# One-liner (no separate tap step needed)
+brew install simpletoolsindia/tap/code-buddy
+
+# Or add the tap first, then use short names for updates
+brew tap simpletoolsindia/tap
+brew install code-buddy
+brew upgrade code-buddy
+```
+
+---
+
 ## Build from Source
 
-Requires Rust 1.80+.
+Requires **Rust 1.80+**.
 
 ```bash
 git clone https://github.com/simpletoolsindia/code-buddy
@@ -158,7 +206,7 @@ cargo build --release
 ./target/release/code-buddy --version
 ```
 
-Or let the installer build it:
+Or build via the installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh -s -- --source
@@ -166,9 +214,9 @@ curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/in
 
 ---
 
-## Release
+## Releasing
 
-Tag a version to trigger a GitHub Actions release (builds for Linux x64/arm64, macOS x64/arm64, Windows x64):
+Push a version tag to trigger the full release pipeline — binaries for Linux x64/arm64, macOS x64/arm64, and Windows x64 are built, a GitHub Release is published, and the Homebrew formula is updated automatically.
 
 ```bash
 make publish TAG=v0.2.0
@@ -180,17 +228,17 @@ make publish TAG=v0.2.0
 
 ```
 crates/
-  cli/        # Binary, commands, TUI
-  config/     # Config loading & env overrides
-  providers/  # Provider adapters + SSE streaming
-  tools/      # Tool registry: file, shell, web
-  errors/     # Shared error types
-  agent/      # Conversation runtime & tool dispatch
+├── cli/        # Binary, commands, TUI
+├── config/     # Config loading & env overrides
+├── providers/  # Provider adapters + SSE streaming
+├── tools/      # Tool registry: file, shell, web
+├── errors/     # Shared error types
+└── runtime/    # Conversation loop & tool dispatch
 ```
 
 ```bash
-make test    # run all 241 tests
-make lint    # clippy + rustfmt
+make test   # run all 241 tests
+make lint   # clippy + rustfmt check
 ```
 
 ---
