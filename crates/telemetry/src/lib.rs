@@ -26,7 +26,7 @@ pub struct TelemetryConfig {
     pub debug: bool,
     /// Output format.
     pub format: LogFormat,
-    /// Override the log filter string (e.g. "code_buddy=debug,reqwest=warn").
+    /// Override the log filter string (e.g. `code_buddy=debug,reqwest=warn`).
     pub filter_override: Option<String>,
 }
 
