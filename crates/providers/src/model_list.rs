@@ -96,18 +96,100 @@ pub async fn fetch_openai_models(api_key: &str) -> Vec<String> {
     }
 }
 
-/// Curated model list for NVIDIA NIM (no public list endpoint without auth).
+/// Fetch available models from NVIDIA NIM endpoint.
+///
+/// Calls `GET https://integrate.api.nvidia.com/v1/models` with Bearer auth.
+/// Returns the live model list filtered to commonly-used chat/instruct models.
+/// Falls back to `nvidia_fallback()` on error.
+pub async fn fetch_nvidia_models(api_key: &str) -> Vec<String> {
+    let url = "https://integrate.api.nvidia.com/v1/models";
+    match do_get(url, Some(api_key)).await {
+        Ok(v) => {
+            let all = parse_openai_model_list(&v);
+            if all.is_empty() {
+                nvidia_fallback()
+            } else {
+                // Filter to commonly-used chat/instruct models only.
+                let mut filtered: Vec<String> = all
+                    .into_iter()
+                    .filter(|id| {
+                        let id = id.as_str();
+                        // Include known model families
+                        id.starts_with("meta/")
+                            || id.starts_with("mistralai/")
+                            || id.starts_with("google/")
+                            || id.starts_with("microsoft/")
+                            || id.starts_with("deepseek-ai/")
+                            || id.starts_with("qwen/")
+                            || id.starts_with("nvidia/")
+                            || id.starts_with("openai/")
+                            || id.starts_with("databricks/")
+                            || id.starts_with("moonshotai/")
+                            || id.starts_with("abacusai/")
+                            || id.starts_with("snowflake/")
+                            || id.starts_with("upstage/")
+                            || id.starts_with("bigcode/")
+                            || id.starts_with("tiiuae/")
+                            || id.starts_with("writer/")
+                            || id.starts_with("ai21labs/")
+                            || id.starts_with("baichuan-inc/")
+                            // Exclude embeddings, vision-only, safety, reward models
+                            && !id.contains("embed")
+                            && !id.contains("safety")
+                            && !id.contains("reward")
+                            && !id.contains("reasoning")
+                            && !id.contains("-reward")
+                            && !id.contains("guardian")
+                            && !id.contains("guard")
+                            && !id.contains("parse")
+                            && !id.contains("vision") // too large for chat
+                            && !id.contains("gemma-2b")
+                            && !id.contains("gemma-3-1b")
+                            && !id.contains("gemma-3-4b")
+                            && !id.contains("gemma-3n-")
+                            && !id.contains("shieldgemma")
+                            && !id.contains("granite-3.0-3b")
+                            && !id.contains("granite-8b-code")
+                            && !id.contains("granite-3.0-8b")
+                            && !id.contains("granite-3.3-8b")
+                            && !id.contains("nemotron-3-nano")
+                            && !id.contains("nemotron-nano-12b")
+                            && !id.contains("nemotron-nano-3-30b")
+                            && !id.contains("nemotron-mini-4b")
+                            && !id.contains("nemotron-4-mini-hindi")
+                            && !id.contains("cosmos-")
+                            && !id.contains("gliner-")
+                            && !id.contains("baai/")
+                            && !id.contains("starcoder2-7b")
+                            && !id.contains("recurrentgemma")
+                            && !id.contains("paligemma")
+                            && !id.contains("kosmos-")
+                            && !id.contains("neva-")
+                            && !id.contains("nvclip")
+                            && !id.contains("vila")
+                            && !id.contains("riva-")
+                            && !id.contains("streampetr")
+                    })
+                    .collect();
+                filtered.sort();
+                if filtered.is_empty() {
+                    nvidia_fallback()
+                } else {
+                    filtered
+                }
+            }
+        }
+        Err(e) => {
+            debug!("NVIDIA model list failed: {e}");
+            nvidia_fallback()
+        }
+    }
+}
+
+/// Public re-export of the NVIDIA fallback list (for wizard non-T TY paths).
 #[must_use]
 pub fn nvidia_models() -> Vec<String> {
-    vec![
-        "meta/llama-3.3-70b-instruct".to_string(),
-        "meta/llama-3.1-70b-instruct".to_string(),
-        "meta/llama-3.1-8b-instruct".to_string(),
-        "mistralai/mistral-large-2-instruct".to_string(),
-        "mistralai/mixtral-8x22b-instruct-v0.1".to_string(),
-        "google/gemma-2-27b-it".to_string(),
-        "microsoft/phi-3-medium-128k-instruct".to_string(),
-    ]
+    nvidia_fallback()
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -174,5 +256,77 @@ fn openai_fallback() -> Vec<String> {
         "o1".to_string(),
         "o1-mini".to_string(),
         "o3-mini".to_string(),
+    ]
+}
+
+fn nvidia_fallback() -> Vec<String> {
+    vec![
+        // Meta Llama
+        "meta/llama-3.3-70b-instruct".to_string(),
+        "meta/llama-3.1-405b-instruct".to_string(),
+        "meta/llama-3.1-70b-instruct".to_string(),
+        "meta/llama-3.1-8b-instruct".to_string(),
+        "meta/llama-3.2-1b-instruct".to_string(),
+        "meta/llama-3.2-3b-instruct".to_string(),
+        "meta/llama-4-maverick-17b-128e-instruct".to_string(),
+        "meta/llama-4-scout-17b-16e-instruct".to_string(),
+        "meta/llama3-70b-instruct".to_string(),
+        "meta/llama3-8b-instruct".to_string(),
+        "meta/codellama-70b".to_string(),
+        // Mistral
+        "mistralai/mistral-large-3-675b-instruct-2512".to_string(),
+        "mistralai/mistral-large-2-instruct".to_string(),
+        "mistralai/mistral-large".to_string(),
+        "mistralai/mistral-medium-3-instruct".to_string(),
+        "mistralai/mistral-small-4-119b-2603".to_string(),
+        "mistralai/mistral-small-24b-instruct".to_string(),
+        "mistralai/mistral-small-3.1-24b-instruct-2503".to_string(),
+        "mistralai/mistral-nemotron".to_string(),
+        "mistralai/devstral-2-123b-instruct-2512".to_string(),
+        "mistralai/mathstral-7b-v0.1".to_string(),
+        "mistralai/codestral-22b-instruct-v0.1".to_string(),
+        "mistralai/mixtral-8x22b-instruct-v0.1".to_string(),
+        "mistralai/mistral-7b-instruct-v0.3".to_string(),
+        // Google Gemma
+        "google/gemma-4-31b-it".to_string(),
+        "google/gemma-3-27b-it".to_string(),
+        "google/gemma-2-27b-it".to_string(),
+        "google/gemma-3-12b-it".to_string(),
+        "google/gemma-2-9b-it".to_string(),
+        "google/codegemma-7b".to_string(),
+        "google/codegemma-1.1-7b".to_string(),
+        // Microsoft Phi
+        "microsoft/phi-4-mini-instruct".to_string(),
+        "microsoft/phi-4-multimodal-instruct".to_string(),
+        "microsoft/phi-4-mini-flash-reasoning".to_string(),
+        "microsoft/phi-3-medium-128k-instruct".to_string(),
+        "microsoft/phi-3-mini-128k-instruct".to_string(),
+        // DeepSeek
+        "deepseek-ai/deepseek-v3.2".to_string(),
+        "deepseek-ai/deepseek-v3.1".to_string(),
+        "deepseek-ai/deepseek-r1-distill-qwen-32b".to_string(),
+        "deepseek-ai/deepseek-r1-distill-qwen-14b".to_string(),
+        "deepseek-ai/deepseek-coder-6.7b-instruct".to_string(),
+        // Qwen
+        "qwen/qwen3.5-397b-a17b".to_string(),
+        "qwen/qwen3.5-122b-a10b".to_string(),
+        "qwen/qwen3-next-80b-a3b-instruct".to_string(),
+        "qwen/qwen3-next-80b-a3b-thinking".to_string(),
+        "qwen/qwen3-coder-480b-a35b-instruct".to_string(),
+        "qwen/qwen2.5-coder-32b-instruct".to_string(),
+        "qwen/qwen2.5-coder-7b-instruct".to_string(),
+        "qwen/qwq-32b".to_string(),
+        // Others
+        "databricks/dbrx-instruct".to_string(),
+        "moonshotai/kimi-k2-instruct".to_string(),
+        "moonshotai/kimi-k2.5".to_string(),
+        "abacusai/dracarys-llama-3.1-70b-instruct".to_string(),
+        "snowflake/arctic-embed-s".to_string(),
+        "upstage/solar-10.7b-instruct".to_string(),
+        "writer/palmyra-creative-122b".to_string(),
+        "writer/palmyra-fin-70b-32k".to_string(),
+        "ai21labs/jamba-1.5-large-instruct".to_string(),
+        "baichuan-inc/baichuan2-13b-chat".to_string(),
+        "tiiuae/falcon3-7b-instruct".to_string(),
     ]
 }

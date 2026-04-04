@@ -36,9 +36,9 @@ pub async fn run(_args: SetupArgs) -> i32 {
 
     // ── Step 1: Provider ──────────────────────────────────────────────────────
     let providers = vec![
-        "lm-studio   (local, no API key needed)",
-        "ollama      (local, no API key needed)",
-        "openrouter  (cloud, supports 200+ models)",
+        "lm-studio   (local/remote, no API key)",
+        "ollama      (local/remote, no API key)",
+        "openrouter  (cloud, 200+ models)",
         "openai      (cloud, GPT-4o / o1 / o3)",
         "nvidia      (cloud, NIM endpoint)",
         "custom      (custom OpenAI-compat endpoint)",
@@ -129,10 +129,32 @@ pub async fn run(_args: SetupArgs) -> i32 {
                 api_key = Some(key);
             }
         }
+        "lm-studio" => {
+            println!(
+                "\n  {} LM Studio endpoint (default: http://localhost:1234):",
+                style("Step 2").cyan().bold()
+            );
+            println!(
+                "  {} Use a remote host for remote access (e.g. http://192.168.1.100:1234)",
+                style("ℹ").yellow()
+            );
+            let ep: String = Input::with_theme(&theme)
+                .with_prompt("  Endpoint")
+                .default("http://localhost:1234".to_string())
+                .interact_text()
+                .unwrap_or_default();
+            if ep != "http://localhost:1234" {
+                endpoint = Some(ep);
+            }
+        }
         "ollama" => {
             println!(
                 "\n  {} Ollama endpoint (default: http://localhost:11434):",
                 style("Step 2").cyan().bold()
+            );
+            println!(
+                "  {} Use a remote host for remote access (e.g. http://192.168.1.100:11434)",
+                style("ℹ").yellow()
             );
             let ep: String = Input::with_theme(&theme)
                 .with_prompt("  Endpoint")
@@ -183,7 +205,13 @@ pub async fn run(_args: SetupArgs) -> i32 {
                 ml::openai_fallback_pub()
             }
         }
-        "nvidia" => ml::nvidia_models(),
+        "nvidia" => {
+            if let Some(ref key) = api_key {
+                ml::fetch_nvidia_models(key).await
+            } else {
+                ml::nvidia_models()
+            }
+        }
         _ => vec![],
     };
 
