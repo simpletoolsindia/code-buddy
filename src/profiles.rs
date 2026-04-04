@@ -291,9 +291,13 @@ mod tests {
 
     #[test]
     fn test_profile_manager() {
+        // Ensure default profile directory exists (list() looks for ~/.code-buddy)
+        let default_home = dirs::home_dir().unwrap_or_default().join(".code-buddy");
+        fs::create_dir_all(&default_home).ok();
+
         let manager = ProfileManager::new(PathBuf::from("/tmp/test-code-buddy-profiles")).unwrap();
         let profiles = manager.list().unwrap();
-        // Default profile should exist
+        // Default profile should exist (from real ~/.code-buddy)
         assert!(!profiles.is_empty());
     }
 
