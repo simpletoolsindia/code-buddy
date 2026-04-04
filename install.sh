@@ -3,7 +3,7 @@
 #
 # Usage:
 #   bash install.sh
-#   bash install.sh --prefix /usr/local/bin
+#   bash install.sh --prefix /usr/local
 #   bash install.sh --check      # verify existing install only
 #   bash install.sh --help
 
@@ -64,8 +64,8 @@ Options:
   --check         Verify existing installation without building
   -h, --help      Show this help message
 
-The installer uses \`cargo install --path . --root <prefix>\` so the binary
-is placed at <prefix>/bin/code-buddy (default: ~/.local/bin/code-buddy).
+The installer uses \`cargo install --path crates/cli --root <prefix>\` so the
+binary is placed at <prefix>/bin/code-buddy (default: ~/.local/bin/code-buddy).
 EOF
             exit 0
             ;;
