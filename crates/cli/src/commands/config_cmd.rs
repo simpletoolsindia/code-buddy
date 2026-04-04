@@ -25,6 +25,10 @@ pub async fn run(mut config: AppConfig, args: ConfigArgs) -> i32 {
         ConfigAction::Set { field, value } => {
             match config.set_field(&field, &value) {
                 Ok(()) => {
+                    if let Err(e) = config.validate() {
+                        eprintln!("Invalid value for '{field}': {e}");
+                        return 1;
+                    }
                     match config.save() {
                         Ok(()) => {
                             println!("Set {field} = {value}");
