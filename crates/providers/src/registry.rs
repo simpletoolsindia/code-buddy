@@ -10,7 +10,10 @@ use code_buddy_config::AppConfig;
 use code_buddy_errors::TransportError;
 use code_buddy_transport::Provider;
 
-use crate::openai_compat::{AdapterConfig, OpenAiCompatAdapter};
+use crate::adapters::{
+    CustomLocalProvider, LmStudioProvider, NvidiaProvider, OpenAiCompatProvider,
+    OpenRouterProvider,
+};
 
 /// Constructs provider adapters from configuration.
 pub struct ProviderRegistry;
@@ -22,18 +25,12 @@ impl ProviderRegistry {
     /// Returns [`TransportError::MissingCredentials`] if a required API key is absent.
     pub fn from_config(config: &AppConfig) -> Result<Box<dyn Provider>, TransportError> {
         let timeout = Duration::from_secs(config.timeout_seconds);
-        let max_retries = config.max_retries;
         let endpoint = config.endpoint.as_deref();
 
-        let adapter_config = match config.provider.as_str() {
+        let provider: Box<dyn Provider> = match config.provider.as_str() {
             "lm-studio" => {
-                let base_url = endpoint
-                    .unwrap_or("http://localhost:1234/v1")
-                    .to_string();
-                AdapterConfig::lm_studio()
-                    .with_base_url_override(base_url)
-                    .with_timeout(timeout)
-                    .with_max_retries(max_retries)
+                let base_url = endpoint.map(str::to_string);
+                Box::new(LmStudioProvider::new(base_url, timeout))
             }
             "openrouter" => {
                 let api_key = config
@@ -45,13 +42,11 @@ impl ProviderRegistry {
                         provider: "OpenRouter".to_string(),
                         env_var: "OPENROUTER_API_KEY".to_string(),
                     })?;
-                let mut cfg = AdapterConfig::openrouter(api_key)
-                    .with_timeout(timeout)
-                    .with_max_retries(max_retries);
                 if let Some(url) = endpoint {
-                    cfg = cfg.with_base_url_override(url.to_string());
+                    Box::new(OpenRouterProvider::with_endpoint(api_key, url, timeout))
+                } else {
+                    Box::new(OpenRouterProvider::new(api_key, timeout))
                 }
-                cfg
             }
             "nvidia" => {
                 let api_key = config
@@ -63,13 +58,11 @@ impl ProviderRegistry {
                         provider: "NVIDIA".to_string(),
                         env_var: "NVIDIA_API_KEY".to_string(),
                     })?;
-                let mut cfg = AdapterConfig::nvidia(api_key)
-                    .with_timeout(timeout)
-                    .with_max_retries(max_retries);
                 if let Some(url) = endpoint {
-                    cfg = cfg.with_base_url_override(url.to_string());
+                    Box::new(NvidiaProvider::with_endpoint(api_key, url, timeout))
+                } else {
+                    Box::new(NvidiaProvider::new(api_key, timeout))
                 }
-                cfg
             }
             "openai" => {
                 let api_key = config
@@ -81,13 +74,11 @@ impl ProviderRegistry {
                         provider: "OpenAI".to_string(),
                         env_var: "OPENAI_API_KEY".to_string(),
                     })?;
-                let mut cfg = AdapterConfig::openai(api_key)
-                    .with_timeout(timeout)
-                    .with_max_retries(max_retries);
                 if let Some(url) = endpoint {
-                    cfg = cfg.with_base_url_override(url.to_string());
+                    Box::new(OpenAiCompatProvider::with_base_url(api_key, url, timeout))
+                } else {
+                    Box::new(OpenAiCompatProvider::new(api_key, timeout))
                 }
-                cfg
             }
             "custom" => {
                 let base_url = endpoint
@@ -100,9 +91,7 @@ impl ProviderRegistry {
                     .clone()
                     .or_else(|| std::env::var("CUSTOM_API_KEY").ok())
                     .unwrap_or_default();
-                AdapterConfig::custom("Custom", base_url, api_key)
-                    .with_timeout(timeout)
-                    .with_max_retries(max_retries)
+                Box::new(CustomLocalProvider::new("Custom", base_url, api_key, timeout))
             }
             other => {
                 return Err(TransportError::Config {
@@ -114,7 +103,7 @@ impl ProviderRegistry {
             }
         };
 
-        Ok(Box::new(OpenAiCompatAdapter::new(adapter_config)))
+        Ok(provider)
     }
 }
 
@@ -222,5 +211,76 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
             .lock()
             .expect("env lock")
+    }
+
+    // ── LM Studio integration tests ────────────────────────────────────────────
+    //
+    // These tests require a locally-running LM Studio instance on port 1234 with
+    // at least one model loaded. They are marked `#[ignore]` so they are skipped
+    // in CI unless explicitly opted-in with `cargo test -- --ignored`.
+    //
+    // Run with: cargo test -p code-buddy-providers lm_studio -- --ignored --nocapture
+
+    /// Smoke test: non-streaming send to LM Studio.
+    ///
+    /// Requires LM Studio running at `http://localhost:1234/v1` with a model loaded.
+    #[tokio::test]
+    #[ignore = "requires LM Studio running at localhost:1234"]
+    async fn lm_studio_send_smoke() {
+        use code_buddy_transport::MessageRequest;
+
+        let cfg = config_for("lm-studio");
+        let provider = ProviderRegistry::from_config(&cfg).expect("build provider");
+        assert_eq!(provider.name(), "LM Studio");
+
+        let req = MessageRequest::simple("local-model", "Say exactly the word PONG and nothing else.");
+        let resp = provider.send(&req).await.expect("send request");
+        let text = resp.text_content();
+        assert!(!text.is_empty(), "expected non-empty response from LM Studio");
+        eprintln!("LM Studio send response: {text:?}");
+    }
+
+    /// Streaming smoke test: SSE events from LM Studio.
+    ///
+    /// Requires LM Studio running at `http://localhost:1234/v1` with a model loaded.
+    #[tokio::test]
+    #[ignore = "requires LM Studio running at localhost:1234"]
+    async fn lm_studio_stream_smoke() {
+        use code_buddy_transport::{MessageRequest, StreamEvent};
+
+        let cfg = config_for("lm-studio");
+        let provider = ProviderRegistry::from_config(&cfg).expect("build provider");
+
+        let req = MessageRequest::simple(
+            "local-model",
+            "Count from 1 to 5, one number per line.",
+        )
+        .with_streaming();
+
+        let mut source = provider.stream(&req).await.expect("start stream");
+
+        let mut collected = String::new();
+        let mut saw_stop = false;
+        loop {
+            match source.next_event().await.expect("next event") {
+                None => break,
+                Some(StreamEvent::TextDelta(t)) => {
+                    eprint!("{t}");
+                    collected.push_str(&t);
+                }
+                Some(StreamEvent::MessageStop) => {
+                    eprintln!();
+                    saw_stop = true;
+                    break;
+                }
+                Some(StreamEvent::Usage(u)) => {
+                    eprintln!("\n[tokens: in={} out={}]", u.input_tokens, u.output_tokens);
+                }
+                Some(_) => {}
+            }
+        }
+
+        assert!(!collected.is_empty(), "expected streamed text from LM Studio");
+        assert!(saw_stop, "expected MessageStop event from LM Studio stream");
     }
 }

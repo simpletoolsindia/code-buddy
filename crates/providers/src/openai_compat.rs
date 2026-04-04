@@ -132,9 +132,12 @@ impl AdapterConfig {
     }
 
     /// Override max retries.
+    ///
+    /// The value is clamped to the hard ceiling of 3 retries to match the retry
+    /// specification (200 ms → 400 ms → 800 ms, max 3 attempts before giving up).
     #[must_use]
     pub fn with_max_retries(mut self, max_retries: u32) -> Self {
-        self.max_retries = max_retries;
+        self.max_retries = max_retries.min(3);
         self
     }
 }
@@ -1059,6 +1062,26 @@ mod tests {
         let config = AdapterConfig::lm_studio()
             .with_base_url_override("http://localhost:5000/v1".to_string());
         assert_eq!(config.base_url, "http://localhost:5000/v1");
+    }
+
+    #[test]
+    fn max_retries_capped_at_three() {
+        // Verify the hard ceiling: values above 3 are clamped to 3.
+        let config = AdapterConfig::lm_studio().with_max_retries(10);
+        assert_eq!(config.max_retries, 3, "max_retries must not exceed 3");
+
+        let config = AdapterConfig::lm_studio().with_max_retries(100);
+        assert_eq!(config.max_retries, 3);
+
+        // Values within the limit are kept as-is.
+        let config = AdapterConfig::lm_studio().with_max_retries(0);
+        assert_eq!(config.max_retries, 0);
+
+        let config = AdapterConfig::lm_studio().with_max_retries(2);
+        assert_eq!(config.max_retries, 2);
+
+        let config = AdapterConfig::lm_studio().with_max_retries(3);
+        assert_eq!(config.max_retries, 3);
     }
 
     #[test]

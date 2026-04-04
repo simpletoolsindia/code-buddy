@@ -11,10 +11,15 @@
 //! [`AppConfig`]. The returned boxed [`Provider`] can be used for both non-streaming
 //! and streaming calls.
 
+pub mod adapters;
 pub mod mock;
 pub mod openai_compat;
 pub mod registry;
 
+pub use adapters::{
+    CustomLocalProvider, LmStudioProvider, NvidiaProvider, OpenAiCompatProvider,
+    OpenRouterProvider,
+};
 pub use mock::MockProvider;
 pub use openai_compat::{AdapterConfig, OpenAiCompatAdapter, SseStreamSource};
 pub use registry::ProviderRegistry;
