@@ -6,7 +6,7 @@
 //! - `..` traversal components that escape CWD are rejected.
 //!
 //! `GrepSearchTool` additionally compiles the user-supplied regex pattern before
-//! any file I/O (mitigating bug_report.md §2 — injection/DoS via malformed patterns).
+//! any file I/O (mitigating `bug_report.md` §2 — injection/DoS via malformed patterns).
 
 use std::path::{Path, PathBuf};
 
@@ -119,17 +119,15 @@ impl Tool for GlobSearchTool {
                 // Canonicalize each matched path and verify it is still within
                 // cwd.  A symlink inside the project root could otherwise point
                 // outside and appear as a valid glob result.
-                let canon_entry = match entry.canonicalize() {
-                    Ok(p) => p,
-                    Err(_) => continue, // skip unresolvable entries
+                let Ok(canon_entry) = entry.canonicalize() else {
+                    continue; // skip unresolvable entries
                 };
                 if !canon_entry.starts_with(&cwd) {
                     continue; // silently discard out-of-root matches
                 }
                 let rel = canon_entry
                     .strip_prefix(&cwd)
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| canon_entry.to_string_lossy().to_string());
+                    .map_or_else(|_| canon_entry.to_string_lossy().to_string(), |p| p.to_string_lossy().to_string());
                 results.push(rel);
             }
             results.sort();
@@ -153,7 +151,7 @@ impl Tool for GlobSearchTool {
 
 /// Search file contents with a regex pattern, confined to the project root.
 ///
-/// # Injection-safety (bug_report.md §2)
+/// # Injection-safety (`bug_report.md` §2)
 ///
 /// The user-supplied pattern is compiled with `regex::Regex` before any file
 /// I/O occurs. Malformed patterns are rejected with [`ToolError::InvalidArgs`]
@@ -206,7 +204,6 @@ fn grep_dir(
                     }
                     _ => {
                         // Path escapes CWD or cannot be canonicalized — skip.
-                        continue;
                     }
                 }
             } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {

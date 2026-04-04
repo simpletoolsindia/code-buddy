@@ -1,7 +1,8 @@
+#![allow(clippy::unnecessary_literal_bound)]
 //! LLM provider adapters for Code Buddy.
 //!
 //! This crate provides concrete implementations of the [`code_buddy_transport::Provider`] trait
-//! for all supported providers. All providers speak the OpenAI chat-completions wire format,
+//! for all supported providers. All providers speak the `OpenAI` chat-completions wire format,
 //! so a single generic adapter handles the HTTP layer, with per-provider config for
 //! auth, base URL, and any quirks.
 //!

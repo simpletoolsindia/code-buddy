@@ -1,7 +1,7 @@
-//! Generic OpenAI chat-completions adapter.
+//! Generic `OpenAI` chat-completions adapter.
 //!
-//! All supported providers (LM Studio, OpenRouter, NVIDIA, OpenAI, custom) speak the
-//! OpenAI `/v1/chat/completions` wire format. This module implements the shared
+//! All supported providers (LM Studio, `OpenRouter`, NVIDIA, `OpenAI`, custom) speak the
+//! `OpenAI` `/v1/chat/completions` wire format. This module implements the shared
 //! HTTP logic once, parameterised by [`AdapterConfig`] for per-provider differences.
 //!
 //! # Retry policy
@@ -61,7 +61,7 @@ impl AdapterConfig {
         }
     }
 
-    /// OpenRouter config.
+    /// `OpenRouter` config.
     #[must_use]
     pub fn openrouter(api_key: impl Into<String>) -> Self {
         Self {
@@ -87,7 +87,7 @@ impl AdapterConfig {
         }
     }
 
-    /// OpenAI config.
+    /// `OpenAI` config.
     #[must_use]
     pub fn openai(api_key: impl Into<String>) -> Self {
         Self {
@@ -149,7 +149,7 @@ impl AdapterConfig {
 
 // ── Wire types ────────────────────────────────────────────────────────────────
 
-/// Chat completions request body (OpenAI wire format).
+/// Chat completions request body (`OpenAI` wire format).
 #[derive(Debug, Serialize)]
 struct ChatRequest {
     model: String,
@@ -499,6 +499,7 @@ impl OpenAiCompatAdapter {
         }
     }
 
+    #[allow(clippy::too_many_lines, clippy::unused_self)]
     fn build_chat_request(&self, req: &MessageRequest, stream: bool) -> ChatRequest {
         let mut messages: Vec<ChatMessage> = Vec::new();
 
@@ -730,8 +731,7 @@ impl OpenAiCompatAdapter {
                         // Retries exhausted on a transient network/timeout error.
                         let last_msg = last_retryable_error
                             .as_ref()
-                            .map(|e| e.to_string())
-                            .unwrap_or_else(|| e.to_string());
+                            .map_or_else(|| e.to_string(), ToString::to_string);
                         return Err(TransportError::RetriesExhausted {
                             provider: self.config.provider_name.clone(),
                             attempts: attempt,
@@ -745,6 +745,7 @@ impl OpenAiCompatAdapter {
         }
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn map_reqwest_error(&self, e: reqwest::Error) -> TransportError {
         if e.is_timeout() {
             TransportError::Timeout {
@@ -872,6 +873,7 @@ pub(crate) fn completions_endpoint(base_url: &str) -> String {
 }
 
 fn backoff_duration(attempt: u32, initial: Duration, max: Duration) -> Duration {
+    #[allow(clippy::cast_possible_truncation)]
     let millis = initial.as_millis() as u64 * 2u64.pow(attempt.saturating_sub(1));
     Duration::from_millis(millis).min(max)
 }
@@ -1043,7 +1045,7 @@ mod tests {
     fn normalize_response_no_choices_is_error() {
         let payload = ChatCompletionResponse {
             id: "chatcmpl-3".to_string(),
-            model: "".to_string(),
+            model: String::new(),
             choices: vec![],
             usage: None,
         };
@@ -1255,7 +1257,6 @@ mod tests {
                 401 => "401 Unauthorized",
                 404 => "404 Not Found",
                 429 => "429 Too Many Requests",
-                500 => "500 Internal Server Error",
                 503 => "503 Service Unavailable",
                 _ => "500 Internal Server Error",
             }

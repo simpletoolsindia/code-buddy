@@ -36,8 +36,7 @@ impl ProviderRegistry {
             }
             "ollama" => {
                 let base_url = endpoint
-                    .map(|u| format!("{u}/v1"))
-                    .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+                    .map_or_else(|| "http://localhost:11434/v1".to_string(), |u| format!("{u}/v1"));
                 Box::new(CustomLocalProvider::new("Ollama", base_url, String::new(), timeout, max_retries))
             }
             "openrouter" => {
@@ -120,9 +119,7 @@ mod tests {
     use super::*;
 
     fn config_for(provider: &str) -> AppConfig {
-        let mut cfg = AppConfig::default();
-        cfg.provider = provider.to_string();
-        cfg
+        AppConfig { provider: provider.to_string(), ..Default::default() }
     }
 
     fn config_with_key(provider: &str, key: &str) -> AppConfig {

@@ -4,7 +4,7 @@
 //! 1. Provider selection
 //! 2. API key entry (providers that require one)
 //! 3. Live model-list fetch → fuzzy model selection
-//! 4. Optional web search key (Brave / SerpAPI)
+//! 4. Optional web search key (Brave / `SerpAPI`)
 //! 5. Optional Firecrawl key for page fetching
 //! 6. Writes the result to `~/.config/code-buddy/config.toml`
 //!
@@ -19,6 +19,7 @@ use dialoguer::{FuzzySelect, Input, Password, Select, theme::ColorfulTheme};
 
 use crate::args::SetupArgs;
 
+#[allow(clippy::too_many_lines)]
 pub async fn run(_args: SetupArgs) -> i32 {
     if !std::io::stdin().is_terminal() {
         eprintln!(
@@ -42,7 +43,7 @@ pub async fn run(_args: SetupArgs) -> i32 {
         "nvidia      (cloud, NIM endpoint)",
         "custom      (custom OpenAI-compat endpoint)",
     ];
-    let provider_ids = vec![
+    let provider_keys = [
         "lm-studio",
         "ollama",
         "openrouter",
@@ -60,7 +61,7 @@ pub async fn run(_args: SetupArgs) -> i32 {
         .default(0)
         .interact()
         .unwrap_or(0);
-    let provider = provider_ids[provider_idx].to_string();
+    let provider = provider_keys[provider_idx].to_string();
 
     // ── Step 2: API key / endpoint ────────────────────────────────────────────
     let mut api_key: Option<String> = None;
@@ -243,11 +244,13 @@ pub async fn run(_args: SetupArgs) -> i32 {
         .unwrap_or_default();
 
     // ── Write config ──────────────────────────────────────────────────────────
-    let mut config = AppConfig::default();
-    config.provider = provider.clone();
-    config.model = Some(selected_model.clone());
-    config.endpoint = endpoint;
-    config.api_key = api_key;
+    let mut config = AppConfig {
+        provider: provider.clone(),
+        model: Some(selected_model.clone()),
+        endpoint,
+        api_key,
+        ..Default::default()
+    };
     if !brave_key.is_empty() {
         config.brave_api_key = Some(brave_key);
     }

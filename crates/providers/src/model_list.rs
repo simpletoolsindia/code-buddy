@@ -45,7 +45,7 @@ pub async fn fetch_lm_studio_models(host: Option<&str>) -> Vec<String> {
     }
 }
 
-/// Fetch available models from OpenRouter.
+/// Fetch available models from `OpenRouter`.
 ///
 /// Calls `GET https://openrouter.ai/api/v1/models` with Bearer auth.
 /// Returns popular models only (filters to those with an `id` field).
@@ -67,7 +67,7 @@ pub async fn fetch_openrouter_models(api_key: &str) -> Vec<String> {
     }
 }
 
-/// Fetch available models from OpenAI.
+/// Fetch available models from `OpenAI`.
 ///
 /// Returns a curated shortlist of the most useful models plus the live list.
 pub async fn fetch_openai_models(api_key: &str) -> Vec<String> {
@@ -141,13 +141,13 @@ fn parse_openai_model_list(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Public re-export of the OpenRouter fallback list (for wizard non-TTY paths).
+/// Public re-export of the `OpenRouter` fallback list (for wizard non-TTY paths).
 #[must_use]
 pub fn openrouter_fallback_pub() -> Vec<String> {
     openrouter_fallback()
 }
 
-/// Public re-export of the OpenAI fallback list.
+/// Public re-export of the `OpenAI` fallback list.
 #[must_use]
 pub fn openai_fallback_pub() -> Vec<String> {
     openai_fallback()

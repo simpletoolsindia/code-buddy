@@ -1,3 +1,4 @@
+#![allow(clippy::unnecessary_literal_bound)]
 //! Tool implementations and registry for Code Buddy.
 //!
 //! Each tool implements the [`Tool`] trait and is registered in [`ToolRegistry`].
@@ -200,16 +201,14 @@ pub(crate) fn validate_against_schema(
 ) -> Result<(), ToolError> {
     // Step 1: input must be an object (or null/empty if schema says so).
     // All built-in tool schemas declare `type: "object"`.
-    if schema.get("type").and_then(Value::as_str) == Some("object") {
-        if !input.is_object() {
-            return Err(ToolError::SchemaValidation {
-                tool: tool.to_string(),
-                reason: format!(
-                    "input must be a JSON object, got {}",
-                    json_type_name(input)
-                ),
-            });
-        }
+    if schema.get("type").and_then(Value::as_str) == Some("object") && !input.is_object() {
+        return Err(ToolError::SchemaValidation {
+            tool: tool.to_string(),
+            reason: format!(
+                "input must be a JSON object, got {}",
+                json_type_name(input)
+            ),
+        });
     }
 
     // Step 2: check required fields.
@@ -278,6 +277,7 @@ fn json_type_name(value: &Value) -> &'static str {
 // ── tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::unnecessary_literal_bound)]
 mod tests {
     use super::*;
     use serde_json::json;

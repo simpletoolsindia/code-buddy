@@ -82,7 +82,9 @@ impl Tool for ReadFileTool {
                 reason: format!("read error: {e}"),
             })?;
 
+        #[allow(clippy::cast_possible_truncation)]
         let start = input["start_line"].as_u64().map(|n| n as usize);
+        #[allow(clippy::cast_possible_truncation)]
         let end = input["end_line"].as_u64().map(|n| n as usize);
 
         if start.is_none() && end.is_none() {

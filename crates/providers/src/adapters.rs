@@ -68,7 +68,7 @@ impl Provider for LmStudioProvider {
 pub struct OpenRouterProvider(OpenAiCompatAdapter);
 
 impl OpenRouterProvider {
-    /// Create a new OpenRouter adapter. `max_retries` is clamped to 3.
+    /// Create a new `OpenRouter` adapter. `max_retries` is clamped to 3.
     #[must_use]
     pub fn new(api_key: impl Into<String>, timeout: Duration, max_retries: u32) -> Self {
         let cfg = AdapterConfig::openrouter(api_key)
@@ -170,7 +170,7 @@ impl Provider for NvidiaProvider {
 pub struct OpenAiCompatProvider(OpenAiCompatAdapter);
 
 impl OpenAiCompatProvider {
-    /// Create a new OpenAI adapter. `max_retries` is clamped to 3.
+    /// Create a new `OpenAI` adapter. `max_retries` is clamped to 3.
     #[must_use]
     pub fn new(api_key: impl Into<String>, timeout: Duration, max_retries: u32) -> Self {
         let cfg = AdapterConfig::openai(api_key)
@@ -217,7 +217,7 @@ impl Provider for OpenAiCompatProvider {
 
 /// Provider adapter for any custom OpenAI-compatible endpoint.
 ///
-/// Useful for Ollama, LocalAI, or self-hosted models with any base URL.
+/// Useful for Ollama, `LocalAI`, or self-hosted models with any base URL.
 /// The API key is optional; pass an empty string if not required.
 pub struct CustomLocalProvider(OpenAiCompatAdapter);
 

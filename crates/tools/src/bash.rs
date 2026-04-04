@@ -1,4 +1,4 @@
-//! BashTool — execute shell commands in a sandboxed working directory.
+//! `BashTool` — execute shell commands in a sandboxed working directory.
 //!
 //! # Confinement policy
 //!
@@ -322,7 +322,7 @@ mod tests {
     async fn bash_exit_code_failure_captured() {
         let t = tool();
         let out = t.execute(json!({ "command": "exit 1" })).await.unwrap();
-        assert!(out.contains("1") || out.is_empty() || out.contains("status"));
+        assert!(out.contains('1') || out.is_empty() || out.contains("status"));
     }
 
     // ── CWD confinement — rejection tests ─────────────────────────────────────
@@ -478,7 +478,7 @@ mod tests {
 
     /// Regression: string-prefix matching would allow `/home/user/proj-evil`
     /// when CWD is `/home/user/proj` because the string starts with the prefix.
-    /// Path::starts_with is component-aware and must reject this.
+    /// `Path::starts_with` is component-aware and must reject this.
     #[test]
     fn validate_rejects_prefix_collision_path() {
         let dir = tempfile::tempdir().unwrap();
@@ -509,10 +509,10 @@ mod tests {
             let cwd = cwd.clone();
             set.spawn(async move {
                 let t = BashTool::new((*cwd).clone());
-                let cmd = format!(
+                let shell_cmd = format!(
                     "echo {i} > \"$TMPDIR/output\" && cat \"$TMPDIR/output\""
                 );
-                let out = t.execute(json!({ "command": cmd })).await.unwrap();
+                let out = t.execute(json!({ "command": shell_cmd })).await.unwrap();
                 let n: u32 = out.trim().parse().expect("should parse number");
                 assert_eq!(n, i, "output must match the value we wrote");
             });

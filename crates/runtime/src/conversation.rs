@@ -120,15 +120,18 @@ pub struct TurnSummary {
 /// Rust's lifetime-invariance issue with mutable trait object references inside
 /// async loops. Callers box their closure once; the runtime reborrows it as
 /// `Option<&mut dyn FnMut(&str)>` within each loop iteration.
+#[allow(clippy::type_complexity)]
 pub struct TextSink(Option<Box<dyn FnMut(&str) + Send>>);
 
 impl TextSink {
     /// No-op sink.
+    #[must_use]
     pub fn none() -> Self {
         Self(None)
     }
 
     /// Wrap a boxed closure.
+    #[must_use]
     pub fn new(f: Box<dyn FnMut(&str) + Send>) -> Self {
         Self(Some(f))
     }
@@ -194,6 +197,7 @@ impl ConversationRuntime {
     ///
     /// Used for compaction decisions. Not a billing-accurate count.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
     pub fn estimated_history_tokens(&self) -> u32 {
         self.history
             .iter()
@@ -309,6 +313,7 @@ impl ConversationRuntime {
         result
     }
 
+    #[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
     async fn run_loop(
         &mut self,
         mut sink: TextSink,
@@ -529,8 +534,7 @@ impl ConversationRuntime {
 
         loop {
             match source.next_event().await.map_err(|e| self.transport_err(e))? {
-                None => break,
-                Some(StreamEvent::MessageStop) => break,
+                None | Some(StreamEvent::MessageStop) => break,
                 Some(StreamEvent::Usage(u)) => {
                     input_toks = u.input_tokens;
                     output_toks = u.output_tokens;

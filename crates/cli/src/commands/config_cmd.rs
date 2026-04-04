@@ -4,6 +4,7 @@ use crate::args::{ConfigAction, ConfigArgs};
 use code_buddy_config::AppConfig;
 use dirs::config_dir;
 
+#[allow(clippy::unused_async, clippy::single_match_else)]
 pub async fn run(mut config: AppConfig, args: ConfigArgs) -> i32 {
     match args.action {
         ConfigAction::Show => {

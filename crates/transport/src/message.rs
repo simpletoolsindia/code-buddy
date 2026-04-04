@@ -201,7 +201,7 @@ pub enum ContentBlock {
 pub enum StreamEvent {
     /// A text delta fragment.
     TextDelta(String),
-    /// A tool call has started (id, name, partial_input).
+    /// A tool call has started (id, name, `partial_input`).
     ToolUseDelta { id: String, name: String, input_json: String },
     /// Token usage for this turn.
     Usage(Usage),

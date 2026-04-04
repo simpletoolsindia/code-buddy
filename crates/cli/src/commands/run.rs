@@ -44,6 +44,7 @@ enum SlashResult {
 
 // ── REPL entry point ──────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_lines, clippy::if_not_else)]
 pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
     print_banner(config);
 
@@ -236,6 +237,7 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
 
 // ── Slash commands ────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_lines)]
 fn handle_slash(
     raw: &str,
     config: &AppConfig,

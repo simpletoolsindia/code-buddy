@@ -9,7 +9,7 @@ use std::process;
 mod args;
 mod commands;
 
-use args::{Cli, OutputFormat, Subcommand};
+use args::{Cli, OutputFormat, RunArgs, SetupArgs, Subcommand};
 use code_buddy_config::AppConfig;
 use code_buddy_telemetry::{LogFormat, TelemetryConfig};
 
@@ -73,13 +73,13 @@ async fn main() {
 
     // On first run (no config file), launch the setup wizard automatically
     // before entering the REPL.
-    if matches!(cli.subcommand, None) && is_first_run() {
+    if cli.subcommand.is_none() && is_first_run() {
         use console::style;
         println!(
             "\n  {} Welcome to Code Buddy! Let's get you set up first.\n",
             style("✻").magenta().bold()
         );
-        let code = commands::setup::run(Default::default()).await;
+        let code = commands::setup::run(SetupArgs::default()).await;
         if code != 0 {
             process::exit(code);
         }
@@ -118,7 +118,7 @@ async fn main() {
         }
         None => {
             // No subcommand: default to interactive REPL.
-            commands::run::run(&config, Default::default()).await
+            commands::run::run(&config, RunArgs::default()).await
         }
     };
 

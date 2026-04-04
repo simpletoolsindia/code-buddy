@@ -3,6 +3,7 @@
 use crate::args::InstallArgs;
 use code_buddy_config::AppConfig;
 
+#[allow(clippy::unused_async)]
 pub async fn run(_config: &AppConfig, args: InstallArgs) -> i32 {
     if args.verify_only {
         println!("Verifying Code Buddy installation...");
@@ -12,8 +13,7 @@ pub async fn run(_config: &AppConfig, args: InstallArgs) -> i32 {
 
     // Check binary location
     let binary = std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "(unknown)".to_string());
+        .map_or_else(|_| "(unknown)".to_string(), |p| p.display().to_string());
     println!("  Binary:      {binary}");
 
     // Check config path

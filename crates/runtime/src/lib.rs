@@ -1,3 +1,4 @@
+#![allow(clippy::unnecessary_literal_bound)]
 //! Conversation runtime for Code Buddy.
 //!
 //! The runtime manages the full tool-calling loop: send → detect tool calls →

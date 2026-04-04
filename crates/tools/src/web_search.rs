@@ -1,8 +1,8 @@
-//! `web_search` tool — query the web using Brave Search or SerpAPI.
+//! `web_search` tool — query the web using Brave Search or `SerpAPI`.
 //!
 //! # API key priority
 //! 1. `BRAVE_SEARCH_API_KEY` / `brave_api_key` in config → Brave Search
-//! 2. `SERPAPI_KEY` / `serpapi_key` in config → SerpAPI
+//! 2. `SERPAPI_KEY` / `serpapi_key` in config → `SerpAPI`
 //! 3. Neither set → tool returns a "no API key configured" result (no panic)
 //!
 //! # Security
@@ -111,10 +111,10 @@ impl Tool for WebSearchTool {
             })?
             .to_string();
 
+        #[allow(clippy::cast_possible_truncation)]
         let max_results = input["max_results"]
             .as_u64()
-            .map(|n| n.min(u64::from(MAX_RESULTS)) as u32)
-            .unwrap_or(5);
+            .map_or(5, |n| n.min(u64::from(MAX_RESULTS)) as u32);
 
         match &self.backend {
             SearchBackend::None => Ok(

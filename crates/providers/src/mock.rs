@@ -114,6 +114,7 @@ impl MockProvider {
     }
 
     /// Return all requests received so far.
+    #[must_use]
     pub fn requests(&self) -> Vec<MessageRequest> {
         self.received.lock().expect("mock lock").clone()
     }

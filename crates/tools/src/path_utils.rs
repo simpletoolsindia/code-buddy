@@ -273,7 +273,7 @@ mod tests {
     }
 
     /// A new file in a completely non-existent subdirectory is allowed as long
-    /// as the path stays within cwd (write_file may create the directory).
+    /// as the path stays within cwd (`write_file` may create the directory).
     #[test]
     fn new_file_in_nonexistent_dir_is_allowed() {
         let dir = tmp();

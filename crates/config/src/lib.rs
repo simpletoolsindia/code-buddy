@@ -19,6 +19,7 @@ const CONFIG_FILE: &str = "config.toml";
 /// the pattern `CODE_BUDDY_<FIELD_NAME_UPPER>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct AppConfig {
     /// LLM provider identifier.
     /// Valid values: `lm-studio`, `openrouter`, `nvidia`, `openai`, `custom`.
@@ -73,7 +74,7 @@ pub struct AppConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub brave_api_key: Option<String>,
 
-    /// SerpAPI key (fallback for web search when Brave key is absent).
+    /// `SerpAPI` key (fallback for web search when Brave key is absent).
     /// Environment override: `SERPAPI_KEY`
     #[serde(skip_serializing_if = "Option::is_none")]
     pub serpapi_key: Option<String>,
@@ -304,7 +305,6 @@ impl AppConfig {
     #[must_use]
     pub fn default_endpoint(&self) -> &'static str {
         match self.provider.as_str() {
-            "lm-studio" => "http://localhost:1234/v1",
             "openrouter" => "https://openrouter.ai/api/v1",
             "nvidia" => "https://integrate.api.nvidia.com/v1",
             "openai" => "https://api.openai.com/v1",
@@ -536,7 +536,7 @@ retries = 2
 
     #[test]
     fn invalid_temperature_fails_validation() {
-        let file = write_temp_config(r#"temperature = 5.0"#);
+        let file = write_temp_config("temperature = 5.0");
         let result = AppConfig::load_from(file.path());
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("temperature"));
@@ -558,8 +558,10 @@ retries = 2
 
     #[test]
     fn get_field_api_key_is_redacted() {
-        let mut config = AppConfig::default();
-        config.api_key = Some("sk-supersecret123".to_string());
+        let config = AppConfig {
+            api_key: Some("sk-supersecret123".to_string()),
+            ..Default::default()
+        };
         let val = config.get_field("api_key").unwrap();
         assert_eq!(val, "<redacted>");
     }
@@ -572,8 +574,10 @@ retries = 2
 
     #[test]
     fn resolved_endpoint_uses_config_value() {
-        let mut config = AppConfig::default();
-        config.endpoint = Some("http://localhost:8080/v1".to_string());
+        let config = AppConfig {
+            endpoint: Some("http://localhost:8080/v1".to_string()),
+            ..Default::default()
+        };
         assert_eq!(config.resolved_endpoint(), "http://localhost:8080/v1");
     }
 
@@ -658,10 +662,12 @@ retries = 2
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
 
-        let mut original = AppConfig::default();
-        original.provider = "openai".to_string();
-        original.model = Some("gpt-4o".to_string());
-        original.timeout_seconds = 45;
+        let original = AppConfig {
+            provider: "openai".to_string(),
+            model: Some("gpt-4o".to_string()),
+            timeout_seconds: 45,
+            ..Default::default()
+        };
         original.save_to(&path).unwrap();
 
         let loaded = AppConfig::load_from(&path).unwrap();

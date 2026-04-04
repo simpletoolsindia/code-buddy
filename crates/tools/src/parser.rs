@@ -81,7 +81,7 @@ fn json_type_name(v: &Value) -> &'static str {
 /// those fragments in order and parses the complete JSON at `MessageStop`.
 #[derive(Debug, Default)]
 pub struct StreamingToolCallAccumulator {
-    /// Ordered list of (id, name, accumulated_input_json).
+    /// Ordered list of `(id, name, accumulated_input_json)`.
     calls: Vec<(String, String, String)>,
 }
 
@@ -273,7 +273,7 @@ mod tests {
         assert_eq!(v["command"], "ls");
     }
 
-    /// Malformed JSON (neither parseable nor repairable) returns ParseFailed.
+    /// Malformed JSON (neither parseable nor repairable) returns `ParseFailed`.
     #[test]
     fn parse_malformed_json_returns_parse_failed() {
         let err = parse_tool_input_json("bash", "not json at all {{{{").unwrap_err();
