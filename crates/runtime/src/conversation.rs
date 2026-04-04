@@ -15,6 +15,18 @@
 //! 7. If `max_iterations` is exceeded: pop the user message and return
 //!    `RuntimeError::MaxIterationsExceeded`.
 //!
+//! # Context compaction
+//!
+//! After each successful provider round-trip, the runtime estimates the total
+//! token count of the conversation history (using the heuristic of 1 token per
+//! 4 characters). When the estimate exceeds `context_token_budget`, the runtime
+//! calls `compact_history()`, which deterministically removes the **oldest**
+//! complete turn (one user + one assistant message pair) from the middle of
+//! history, preserving the most recent context.
+//!
+//! If after compaction the history still exceeds the budget, [`RuntimeError::ContextTooLarge`]
+//! is returned so the caller can inform the user.
+//!
 //! # Regression notes
 //! - Bug §3 (Tokio panic on static runtime init): this runtime is `async` throughout.
 //!   There is no `OnceLock<tokio::runtime::Runtime>` with `.expect()`.
@@ -57,19 +69,28 @@ pub struct RuntimeConfig {
     pub tool_timeout: Duration,
     /// Print debug info (token counts, etc.).
     pub debug: bool,
+    /// Estimated token budget for the conversation history.
+    ///
+    /// When the runtime estimates the history has exceeded this many tokens
+    /// (heuristic: 1 token ≈ 4 chars), it compacts by dropping the oldest
+    /// complete turn (user + assistant pair). A value of `0` disables
+    /// compaction. Default: `max_tokens * 6` (six response windows of context).
+    pub context_token_budget: u32,
 }
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
+        let max_tokens = 4096_u32;
         Self {
             model: "local-model".to_string(),
-            max_tokens: 4096,
+            max_tokens,
             temperature: None,
             system_prompt: None,
             streaming: false,
             max_iterations: 10,
             tool_timeout: Duration::from_secs(30),
             debug: false,
+            context_token_budget: max_tokens.saturating_mul(6),
         }
     }
 }
@@ -163,6 +184,93 @@ impl ConversationRuntime {
         self.history.clear();
     }
 
+    /// Estimated token count for the current history (heuristic: 1 token ≈ 4 chars).
+    ///
+    /// Used for compaction decisions. Not a billing-accurate count.
+    #[must_use]
+    pub fn estimated_history_tokens(&self) -> u32 {
+        self.history
+            .iter()
+            .flat_map(|m| m.content.iter())
+            .map(|block| {
+                let chars = match block {
+                    code_buddy_transport::InputContentBlock::Text { text } => text.len(),
+                    code_buddy_transport::InputContentBlock::ToolUse { input, .. } => {
+                        input.to_string().len()
+                    }
+                    code_buddy_transport::InputContentBlock::ToolResult { content, .. } => {
+                        content.len()
+                    }
+                };
+                (chars as u32).saturating_div(4).max(1)
+            })
+            .sum()
+    }
+
+    /// Drop the oldest complete turn (oldest user message + the message immediately
+    /// following it) from history, preserving the most recent context.
+    ///
+    /// Returns `true` if a turn was dropped, `false` if the history is too short
+    /// to compact (fewer than 4 messages: current user + current response + at least
+    /// one prior turn to drop).
+    ///
+    /// This is a deterministic, lossless compaction — no LLM summarization.
+    /// Callers should warn the user when this fires.
+    pub fn compact_oldest_turn(&mut self) -> bool {
+        // Need at least 4 messages to have something droppable:
+        // [old_user, old_assistant, ..., new_user, new_assistant]
+        if self.history.len() < 4 {
+            return false;
+        }
+        // Remove the first two messages (oldest user + oldest assistant/tool-call).
+        self.history.remove(0);
+        self.history.remove(0);
+        true
+    }
+
+    /// Compact history if estimated token count exceeds `context_token_budget`.
+    ///
+    /// Repeatedly drops the oldest turn until under budget or no more turns
+    /// can be dropped. Returns [`RuntimeError::ContextTooLarge`] if the
+    /// budget is still exceeded after all possible compaction.
+    fn compact_if_needed(&mut self) -> Result<(), RuntimeError> {
+        let budget = self.config.context_token_budget;
+        if budget == 0 {
+            return Ok(()); // Compaction disabled.
+        }
+
+        let mut compacted = false;
+        loop {
+            if self.estimated_history_tokens() <= budget {
+                break;
+            }
+            if !self.compact_oldest_turn() {
+                // History is too short to compact further (< 4 messages).
+                // Only return an error if we already compacted something but
+                // are still over budget — meaning even dropping the oldest
+                // turns doesn't help. If compaction never ran at all, the
+                // single current turn is the cause; we proceed and let the
+                // provider surface a context-length error if needed.
+                if compacted {
+                    let tokens = self.estimated_history_tokens();
+                    return Err(RuntimeError::ContextTooLarge { tokens });
+                }
+                break;
+            }
+            compacted = true;
+        }
+
+        if compacted {
+            warn!(
+                "context compacted: {} messages remaining, ~{} estimated tokens",
+                self.history.len(),
+                self.estimated_history_tokens()
+            );
+        }
+
+        Ok(())
+    }
+
     /// Run one conversation turn with an optional text callback.
     ///
     /// Pass `TextSink::none()` when no streaming output is needed.
@@ -214,6 +322,10 @@ impl ConversationRuntime {
                     max: self.config.max_iterations,
                 });
             }
+
+            // Compact history before building the next request so the provider
+            // never receives a payload that exceeds the context budget.
+            self.compact_if_needed()?;
 
             let request = MessageRequest {
                 model: self.config.model.clone(),
@@ -729,5 +841,128 @@ mod tests {
         // First response: 20 in + 10 out, second: 10 in + 5 out → totals 30/15.
         assert_eq!(summary.input_tokens, 30);
         assert_eq!(summary.output_tokens, 15);
+    }
+
+    // ── Context compaction ────────────────────────────────────────────────────
+
+    /// `compact_oldest_turn` drops the first user+assistant pair.
+    #[tokio::test]
+    async fn compact_oldest_turn_drops_first_pair() {
+        let mut rt = make_runtime(vec![
+            MockProvider::text_response("first"),
+            MockProvider::text_response("second"),
+        ]);
+        rt.run_turn("one", no_sink()).await.unwrap();
+        rt.run_turn("two", no_sink()).await.unwrap();
+        // History: [user1, assistant1, user2, assistant2]
+        assert_eq!(rt.history().len(), 4);
+
+        let dropped = rt.compact_oldest_turn();
+        assert!(dropped);
+        // After compaction: [user2, assistant2]
+        assert_eq!(rt.history().len(), 2);
+        assert_eq!(rt.history()[0].role, "user");
+    }
+
+    /// Cannot compact when history has fewer than 4 messages.
+    #[tokio::test]
+    async fn compact_oldest_turn_noop_on_short_history() {
+        let mut rt = make_runtime(vec![MockProvider::text_response("hi")]);
+        rt.run_turn("hello", no_sink()).await.unwrap();
+        // History: [user, assistant] — only 2 messages
+        assert_eq!(rt.history().len(), 2);
+        let dropped = rt.compact_oldest_turn();
+        assert!(!dropped, "should not compact when < 4 messages");
+        assert_eq!(rt.history().len(), 2);
+    }
+
+    /// When `context_token_budget` is tiny, compaction fires automatically
+    /// during the third turn (when there are ≥ 4 prior messages to drop).
+    /// The turn still completes and history is shorter than without compaction.
+    #[tokio::test]
+    async fn auto_compaction_fires_when_over_budget() {
+        // 3 turns: turns 1 and 2 accumulate history, turn 3 triggers compaction.
+        let responses = vec![
+            MockProvider::text_response("alpha"),  // turn 1
+            MockProvider::text_response("beta"),   // turn 2
+            MockProvider::text_response("gamma"),  // turn 3 (compaction fires)
+        ];
+        let mut tools = ToolRegistry::new();
+        tools.register(EchoTool);
+        // Budget = 3 tokens. After 2 turns the history is ~4 tokens, so on turn 3
+        // the runtime will compact one (user+assistant) pair before sending.
+        let config = RuntimeConfig {
+            context_token_budget: 3,
+            ..Default::default()
+        };
+        let mut rt = ConversationRuntime::new(
+            Box::new(MockProvider::new(responses)),
+            tools,
+            config,
+        );
+
+        rt.run_turn("one", no_sink()).await.unwrap();
+        rt.run_turn("two", no_sink()).await.unwrap();
+        // History: [user1, assistant1, user2, assistant2] — 4 messages, > 3 tokens.
+        let history_before = rt.history().len();
+        assert_eq!(history_before, 4);
+
+        let summary = rt.run_turn("three", no_sink()).await.unwrap();
+        // Turn 3 completed (compaction happened, oldest pair was dropped).
+        assert_eq!(summary.response_text, "gamma");
+        // History should be smaller than it would be without compaction.
+        assert!(
+            rt.history().len() < history_before + 2,
+            "expected compaction to have reduced history: len={}",
+            rt.history().len()
+        );
+    }
+
+    /// When a turn's history cannot be compacted (< 4 msgs) and still exceeds
+    /// the budget, the turn proceeds without error — the provider handles overflow.
+    /// `ContextTooLarge` is NOT returned in this case; it is only returned when
+    /// compaction was attempted but insufficient.
+    #[tokio::test]
+    async fn single_turn_over_budget_proceeds_without_error() {
+        let mut tools = ToolRegistry::new();
+        tools.register(EchoTool);
+        let config = RuntimeConfig {
+            // Budget of 1 token; a single user+assistant pair cannot be dropped.
+            context_token_budget: 1,
+            ..Default::default()
+        };
+        let responses = vec![
+            MockProvider::text_response("ok"),
+            MockProvider::text_response("ok2"),
+        ];
+        let mut rt = ConversationRuntime::new(
+            Box::new(MockProvider::new(responses)),
+            tools,
+            config,
+        );
+        // Turn 1: history has only [user]. compact_if_needed finds < 4 msgs and no
+        // prior compaction — so it proceeds without error, even though budget < tokens.
+        rt.run_turn("msg1", no_sink()).await.unwrap();
+        // Turn 2: history is [user1, assistant1, user2] = 3 msgs. Still < 4 → no error.
+        rt.run_turn("msg2", no_sink()).await.unwrap();
+    }
+
+    /// `estimated_history_tokens` returns 0 for empty history.
+    #[test]
+    fn estimated_tokens_zero_on_empty_history() {
+        let rt = make_runtime(vec![]);
+        assert_eq!(rt.estimated_history_tokens(), 0);
+    }
+
+    /// `estimated_history_tokens` grows after turns are added.
+    #[tokio::test]
+    async fn estimated_tokens_grows_with_history() {
+        let mut rt = make_runtime(vec![
+            MockProvider::text_response("some response text here"),
+        ]);
+        let before = rt.estimated_history_tokens();
+        rt.run_turn("user message", no_sink()).await.unwrap();
+        let after = rt.estimated_history_tokens();
+        assert!(after > before, "tokens should grow: before={before} after={after}");
     }
 }

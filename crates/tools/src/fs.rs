@@ -3,7 +3,7 @@
 //! All tools validate that the target path stays within the configured CWD,
 //! preventing path-traversal attacks.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use async_trait::async_trait;
 use code_buddy_errors::ToolError;
@@ -11,57 +11,7 @@ use serde_json::{Value, json};
 use tracing::instrument;
 
 use crate::Tool;
-
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-/// Resolve `path` relative to `cwd` and verify it is within `cwd`.
-///
-/// Returns the canonical absolute path on success.
-fn resolve_within_cwd(
-    tool: &str,
-    cwd: &Path,
-    path: &str,
-) -> Result<PathBuf, ToolError> {
-    let canon_cwd = cwd.canonicalize().map_err(|e| ToolError::ExecutionFailed {
-        tool: tool.to_string(),
-        reason: format!("cannot resolve cwd: {e}"),
-    })?;
-
-    let joined = if Path::new(path).is_absolute() {
-        PathBuf::from(path)
-    } else {
-        canon_cwd.join(path)
-    };
-
-    // Normalize the path without requiring it to exist: walk each component,
-    // resolving `.` and `..`, starting from the canonical cwd.
-    let normalized = normalize_path(&joined);
-
-    // Reject traversal before any I/O.
-    if !normalized.starts_with(&canon_cwd) {
-        return Err(ToolError::PathTraversal {
-            tool: tool.to_string(),
-            path: path.to_string(),
-        });
-    }
-
-    Ok(normalized)
-}
-
-/// Resolve `.` and `..` components without touching the filesystem.
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            c => out.push(c),
-        }
-    }
-    out
-}
+use crate::path_utils::resolve_within_cwd;
 
 // ── ReadFileTool ─────────────────────────────────────────────────────────────
 

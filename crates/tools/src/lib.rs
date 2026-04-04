@@ -2,11 +2,13 @@
 //!
 //! Each tool implements the [`Tool`] trait and is registered in [`ToolRegistry`].
 //! The registry exposes all tool definitions to the provider, executes calls by
-//! name, and enforces per-call timeouts.
+//! name, validates input against each tool's declared JSON Schema, and enforces
+//! per-call timeouts.
 
 pub mod bash;
 pub mod fs;
 pub mod parser;
+pub mod path_utils;
 pub mod search;
 
 use std::collections::HashMap;
@@ -40,7 +42,8 @@ pub trait Tool: Send + Sync {
 /// Registry of all available tools.
 ///
 /// The registry owns a map of named tools and is the sole execution path.
-/// It enforces a per-call timeout and validates tool names.
+/// It enforces a per-call timeout, validates inputs against declared JSON Schema,
+/// and handles unknown-tool errors cleanly.
 pub struct ToolRegistry {
     tools: HashMap<String, Box<dyn Tool>>,
     tool_timeout: Duration,
@@ -106,10 +109,17 @@ impl ToolRegistry {
         defs
     }
 
-    /// Execute a named tool with a per-call timeout.
+    /// Execute a named tool with schema validation and a per-call timeout.
+    ///
+    /// Steps:
+    /// 1. Look up the tool by name → [`ToolError::UnknownTool`] if missing.
+    /// 2. Validate `input` against the tool's `input_schema()` →
+    ///    [`ToolError::SchemaValidation`] on mismatch.
+    /// 3. Run with the configured timeout → [`ToolError::Timeout`] if exceeded.
     ///
     /// # Errors
     /// - [`ToolError::UnknownTool`] if the name is not registered.
+    /// - [`ToolError::SchemaValidation`] if the input fails schema validation.
     /// - [`ToolError::Timeout`] if execution exceeds the configured timeout.
     /// - Any error returned by the tool itself.
     #[instrument(skip(self), fields(tool = name))]
@@ -124,6 +134,9 @@ impl ToolRegistry {
                 .join(", "),
         })?;
 
+        let schema = tool.input_schema();
+        validate_against_schema(name, &schema, &input)?;
+
         let timeout = self.tool_timeout;
         let seconds = timeout.as_secs();
 
@@ -136,10 +149,110 @@ impl ToolRegistry {
     }
 }
 
+// ── JSON Schema validation ─────────────────────────────────────────────────────
+
+/// Validate `input` against a JSON Schema `schema`.
+///
+/// Covers the subset of JSON Schema used by all built-in tool schemas:
+/// - `type: "object"` — input must be a JSON object.
+/// - `required: [...]` — each listed field must be present.
+/// - `properties.*.type` — if a field is present and its declared type is
+///   one of `string | number | integer | boolean | array | object | null`,
+///   its runtime type must match.
+///
+/// Other JSON Schema keywords (e.g. `minimum`, `pattern`, `enum`) are silently
+/// ignored; per-tool `execute()` implementations validate those constraints
+/// themselves with richer error messages.
+pub(crate) fn validate_against_schema(
+    tool: &str,
+    schema: &Value,
+    input: &Value,
+) -> Result<(), ToolError> {
+    // Step 1: input must be an object (or null/empty if schema says so).
+    // All built-in tool schemas declare `type: "object"`.
+    if schema.get("type").and_then(Value::as_str) == Some("object") {
+        if !input.is_object() {
+            return Err(ToolError::SchemaValidation {
+                tool: tool.to_string(),
+                reason: format!(
+                    "input must be a JSON object, got {}",
+                    json_type_name(input)
+                ),
+            });
+        }
+    }
+
+    // Step 2: check required fields.
+    if let Some(required) = schema.get("required").and_then(Value::as_array) {
+        for field_val in required {
+            if let Some(field) = field_val.as_str() {
+                if input.get(field).is_none() {
+                    return Err(ToolError::SchemaValidation {
+                        tool: tool.to_string(),
+                        reason: format!("missing required field '{field}'"),
+                    });
+                }
+            }
+        }
+    }
+
+    // Step 3: type-check declared properties that are present in input.
+    if let Some(properties) = schema.get("properties").and_then(Value::as_object) {
+        for (field, prop_schema) in properties {
+            if let Some(value) = input.get(field) {
+                if let Some(declared_type) = prop_schema.get("type").and_then(Value::as_str) {
+                    let matches = json_value_matches_type(value, declared_type);
+                    if !matches {
+                        return Err(ToolError::SchemaValidation {
+                            tool: tool.to_string(),
+                            reason: format!(
+                                "field '{field}' must be {declared_type}, got {}",
+                                json_type_name(value)
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Returns `true` if `value` matches the JSON Schema primitive `type` string.
+fn json_value_matches_type(value: &Value, type_str: &str) -> bool {
+    match type_str {
+        "string" => value.is_string(),
+        "number" => value.is_number(),
+        "integer" => value.is_i64() || value.is_u64(),
+        "boolean" => value.is_boolean(),
+        "array" => value.is_array(),
+        "object" => value.is_object(),
+        "null" => value.is_null(),
+        _ => true, // Unknown type keywords are not rejected.
+    }
+}
+
+/// Human-readable name for the JSON type of `value`.
+fn json_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+// ── tests ─────────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     struct EchoTool;
 
@@ -152,12 +265,21 @@ mod tests {
             "Echo input"
         }
         fn input_schema(&self) -> Value {
-            json!({ "type": "object", "properties": { "msg": { "type": "string" } } })
+            json!({
+                "type": "object",
+                "properties": {
+                    "msg": { "type": "string" },
+                    "count": { "type": "integer" }
+                },
+                "required": ["msg"]
+            })
         }
         async fn execute(&self, input: Value) -> Result<String, ToolError> {
             Ok(input["msg"].as_str().unwrap_or("").to_string())
         }
     }
+
+    // ── ToolRegistry ──────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn registry_executes_registered_tool() {
@@ -186,7 +308,7 @@ mod tests {
                 "slow"
             }
             fn input_schema(&self) -> Value {
-                json!({})
+                json!({ "type": "object" })
             }
             async fn execute(&self, _input: Value) -> Result<String, ToolError> {
                 tokio::time::sleep(Duration::from_secs(10)).await;
@@ -207,5 +329,93 @@ mod tests {
         let defs = reg.definitions();
         assert_eq!(defs[0].name, "echo");
         assert_eq!(defs[0].description.as_deref(), Some("Echo input"));
+    }
+
+    // ── JSON Schema validation ─────────────────────────────────────────────────
+
+    #[test]
+    fn schema_validation_passes_valid_input() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "msg": { "type": "string" } },
+            "required": ["msg"]
+        });
+        assert!(validate_against_schema("echo", &schema, &json!({ "msg": "hi" })).is_ok());
+    }
+
+    #[test]
+    fn schema_validation_rejects_missing_required_field() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "msg": { "type": "string" } },
+            "required": ["msg"]
+        });
+        let err = validate_against_schema("echo", &schema, &json!({})).unwrap_err();
+        assert!(
+            matches!(err, ToolError::SchemaValidation { ref reason, .. } if reason.contains("msg")),
+            "expected missing-field error, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn schema_validation_rejects_non_object_input() {
+        let schema = json!({ "type": "object" });
+        let err = validate_against_schema("echo", &schema, &json!("a string")).unwrap_err();
+        assert!(matches!(err, ToolError::SchemaValidation { .. }));
+    }
+
+    #[test]
+    fn schema_validation_rejects_wrong_field_type() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "count": { "type": "integer" } },
+            "required": ["count"]
+        });
+        let err =
+            validate_against_schema("echo", &schema, &json!({ "count": "not-a-number" }))
+                .unwrap_err();
+        assert!(
+            matches!(err, ToolError::SchemaValidation { ref reason, .. } if reason.contains("count")),
+            "expected type error for count, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn schema_validation_allows_extra_fields() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "msg": { "type": "string" } },
+            "required": ["msg"]
+        });
+        // Extra field "extra" is allowed (additionalProperties not enforced).
+        let result =
+            validate_against_schema("echo", &schema, &json!({ "msg": "hi", "extra": 42 }));
+        assert!(result.is_ok());
+    }
+
+    /// Schema validation happens BEFORE tool execution; the registry must reject
+    /// missing required fields before ever calling `execute()`.
+    #[tokio::test]
+    async fn registry_rejects_missing_required_field_before_execution() {
+        let mut reg = ToolRegistry::new();
+        reg.register(EchoTool);
+        let err = reg.execute("echo", json!({})).await.unwrap_err();
+        assert!(
+            matches!(err, ToolError::SchemaValidation { .. }),
+            "expected SchemaValidation, got {err:?}"
+        );
+    }
+
+    /// Wrong type for a declared field is caught by schema validation.
+    #[tokio::test]
+    async fn registry_rejects_wrong_field_type() {
+        let mut reg = ToolRegistry::new();
+        reg.register(EchoTool);
+        // `count` is declared as `integer`, passing a string should fail validation.
+        let err = reg
+            .execute("echo", json!({ "msg": "ok", "count": "not-an-int" }))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ToolError::SchemaValidation { .. }));
     }
 }
