@@ -240,11 +240,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "code-buddy-config",
  "code-buddy-errors",
  "code-buddy-tools",
  "code-buddy-transport",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",

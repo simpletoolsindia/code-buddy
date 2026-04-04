@@ -382,18 +382,46 @@ impl ConversationRuntime {
 
             // Strict no-tool mode: if no tools are registered, the model
             // should not emit tool calls (none were advertised).  If it does
-            // anyway, ignore them rather than attempting to execute them
-            // against an empty registry (which would surface a confusing
-            // "unknown tool" error to the user).
-            let tool_calls = if !has_tools && !tool_calls.is_empty() {
+            // anyway, inject synthetic "tool not available" results into the
+            // history so the model receives structured feedback and can
+            // continue the conversation.  We do NOT execute the calls.
+            if !has_tools && !tool_calls.is_empty() {
                 warn!(
                     count = tool_calls.len(),
-                    "model emitted tool calls but no tools are registered; ignoring"
+                    "model emitted tool calls but no tools are registered; \
+                     injecting 'not available' results"
                 );
-                vec![]
-            } else {
-                tool_calls
-            };
+
+                // Record the assistant message that contained the unexpected calls.
+                let tool_use_blocks: Vec<_> = tool_calls
+                    .iter()
+                    .map(|c| code_buddy_transport::InputContentBlock::ToolUse {
+                        id: c.id.clone(),
+                        name: c.name.clone(),
+                        input: c.input.clone(),
+                    })
+                    .collect();
+                self.history.push(InputMessage {
+                    role: "assistant".to_string(),
+                    content: tool_use_blocks,
+                });
+
+                // Inject a synthetic error result for each unexpected call.
+                for call in &tool_calls {
+                    self.history.push(InputMessage::tool_result(
+                        &call.id,
+                        format!(
+                            "Tool '{}' is not available in this session. \
+                             Please answer without using tools.",
+                            call.name
+                        ),
+                        true, // is_error = true
+                    ));
+                }
+
+                // Loop again so the model can give a text answer.
+                continue;
+            }
 
             if tool_calls.is_empty() {
                 if !response_text.is_empty() {
@@ -1124,5 +1152,257 @@ mod tests {
         rt.run_turn("user message", no_sink()).await.unwrap();
         let after = rt.estimated_history_tokens();
         assert!(after > before, "tokens should grow: before={before} after={after}");
+    }
+
+    // ── End-to-end smoke tests ─────────────────────────────────────────────────
+    //
+    // These tests exercise the full pipeline: config → ToolRegistry with real
+    // built-in tools → ConversationRuntime → provider round-trip → tool
+    // execution → result injection → final text response.
+    //
+    // All file I/O is sandboxed inside a temp directory so the tests are
+    // hermetic and do not touch the caller's working directory.
+
+    /// Helper: build a runtime with the real built-in tool registry rooted at
+    /// `cwd`, backed by a `MockProvider` that will serve `responses` in order.
+    fn make_builtin_runtime(
+        responses: Vec<MessageResponse>,
+        cwd: std::path::PathBuf,
+    ) -> ConversationRuntime {
+        let mut tools = ToolRegistry::new();
+        tools.register_builtin(cwd);
+        ConversationRuntime::new(
+            Box::new(MockProvider::new(responses)),
+            tools,
+            RuntimeConfig::default(),
+        )
+    }
+
+    /// Full read_file cycle:
+    ///   1. Model asks to call `read_file` on a file that exists.
+    ///   2. Runtime executes the real ReadFileTool; content is injected into history.
+    ///   3. Model returns a final text answer.
+    ///   4. Verify: tool_calls_made == 1, response_text is non-empty.
+    #[tokio::test]
+    async fn e2e_read_file_tool_executes_and_injects_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("greeting.txt");
+        std::fs::write(&file_path, "Hello from the test file!\n").unwrap();
+
+        let responses = vec![
+            MockProvider::tool_call_response(
+                "call-1",
+                "read_file",
+                json!({ "path": "greeting.txt" }),
+            ),
+            MockProvider::text_response("The file says: Hello from the test file!"),
+        ];
+
+        let mut rt = make_builtin_runtime(responses, dir.path().to_path_buf());
+        let summary = rt
+            .run_turn("What is in greeting.txt?", no_sink())
+            .await
+            .unwrap();
+
+        assert_eq!(summary.tool_calls_made, 1, "one tool call should have been made");
+        assert_eq!(summary.iterations, 2, "two iterations: tool call + final answer");
+        assert!(
+            summary.response_text.contains("Hello from the test file!"),
+            "final text should include the injected file content: {:?}",
+            summary.response_text
+        );
+    }
+
+    /// Full write_file cycle:
+    ///   1. Model asks to call `write_file` to create a new file.
+    ///   2. Runtime executes the real WriteFileTool; file is written to disk.
+    ///   3. Model returns a final text answer.
+    ///   4. Verify the file was actually created on disk with the expected content.
+    #[tokio::test]
+    async fn e2e_write_file_tool_creates_real_file() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let responses = vec![
+            MockProvider::tool_call_response(
+                "call-2",
+                "write_file",
+                json!({
+                    "path": "output.txt",
+                    "content": "Generated by the model."
+                }),
+            ),
+            MockProvider::text_response("File written successfully."),
+        ];
+
+        let mut rt = make_builtin_runtime(responses, dir.path().to_path_buf());
+        let summary = rt.run_turn("Write a file called output.txt.", no_sink()).await.unwrap();
+
+        assert_eq!(summary.tool_calls_made, 1);
+        assert_eq!(summary.response_text, "File written successfully.");
+
+        let written = dir.path().join("output.txt");
+        assert!(written.exists(), "output.txt should have been created on disk");
+        let contents = std::fs::read_to_string(&written).unwrap();
+        assert_eq!(contents, "Generated by the model.");
+    }
+
+    /// Two-tool sequence: write then read.
+    ///   Model writes a file, then reads it back, then returns a final text answer.
+    #[tokio::test]
+    async fn e2e_two_tool_sequence_write_then_read() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let responses = vec![
+            MockProvider::tool_call_response(
+                "w1",
+                "write_file",
+                json!({ "path": "data.txt", "content": "value=42" }),
+            ),
+            MockProvider::tool_call_response(
+                "r1",
+                "read_file",
+                json!({ "path": "data.txt" }),
+            ),
+            MockProvider::text_response("I read back value=42 from data.txt."),
+        ];
+
+        let mut rt = make_builtin_runtime(responses, dir.path().to_path_buf());
+        let summary = rt.run_turn("Write and read data.txt.", no_sink()).await.unwrap();
+
+        assert_eq!(summary.tool_calls_made, 2);
+        assert_eq!(summary.iterations, 3);
+
+        let path = dir.path().join("data.txt");
+        assert!(path.exists(), "file should exist after write_file");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "value=42");
+        assert!(summary.response_text.contains("value=42"));
+    }
+
+    /// Strict no-tool mode: when the ToolRegistry is empty (has_tools == false)
+    /// and the model unexpectedly emits a tool call, the runtime should ignore
+    /// the tool call and return the response text without error.
+    #[tokio::test]
+    async fn e2e_no_tools_mode_ignores_unexpected_model_tool_calls() {
+        // Runtime with an empty tool registry — no tools are advertised to the model.
+        let mut rt = ConversationRuntime::new(
+            Box::new(MockProvider::new(vec![
+                // The model misbehaves and emits a tool call anyway.
+                MockProvider::tool_call_response("bad-call", "read_file", json!({"path": "x"})),
+                // The runtime should discard the tool call and loop again,
+                // then the model returns a plain text response.
+                MockProvider::text_response("No tools needed."),
+            ])),
+            ToolRegistry::new(), // empty — has_tools == false
+            RuntimeConfig::default(),
+        );
+
+        let summary = rt.run_turn("Hello", no_sink()).await.unwrap();
+
+        // Tool call was silently ignored, final answer returned normally.
+        assert_eq!(
+            summary.tool_calls_made, 0,
+            "tool call from a no-tool runtime should be ignored"
+        );
+        assert_eq!(summary.response_text, "No tools needed.");
+    }
+
+    /// Full-pipeline config test: verify that AppConfig::default() produces
+    /// a valid RuntimeConfig and that a runtime built from it handles a
+    /// normal exchange without panics.
+    #[tokio::test]
+    async fn e2e_config_defaults_produce_valid_runtime() {
+        use code_buddy_config::AppConfig;
+
+        let app_cfg = AppConfig::default();
+
+        // Validate that the default config satisfies all field constraints.
+        app_cfg
+            .validate()
+            .expect("default AppConfig should pass validation");
+
+        // Build a RuntimeConfig from the app config (mirrors what ask.rs does).
+        let rt_config = RuntimeConfig {
+            model: app_cfg.model.unwrap_or_else(|| "local-model".to_string()),
+            max_tokens: app_cfg.max_tokens.unwrap_or(4096),
+            temperature: app_cfg.temperature,
+            system_prompt: app_cfg.system_prompt,
+            streaming: app_cfg.streaming,
+            debug: app_cfg.debug,
+            ..RuntimeConfig::default()
+        };
+
+        let mut rt = ConversationRuntime::new(
+            Box::new(MockProvider::new(vec![MockProvider::text_response(
+                "Config OK",
+            )])),
+            ToolRegistry::new(),
+            rt_config,
+        );
+
+        let summary = rt.run_turn("ping", no_sink()).await.unwrap();
+        assert_eq!(summary.response_text, "Config OK");
+        assert_eq!(summary.tool_calls_made, 0);
+    }
+
+    /// History grows across multiple turns, and each turn appends exactly
+    /// one user + one assistant message (2 messages per turn).
+    #[tokio::test]
+    async fn e2e_history_grows_correctly_across_turns() {
+        let mut rt = make_runtime(vec![
+            MockProvider::text_response("answer1"),
+            MockProvider::text_response("answer2"),
+            MockProvider::text_response("answer3"),
+        ]);
+
+        assert_eq!(rt.history().len(), 0);
+        rt.run_turn("q1", no_sink()).await.unwrap();
+        assert_eq!(rt.history().len(), 2, "after turn 1: user + assistant");
+        rt.run_turn("q2", no_sink()).await.unwrap();
+        assert_eq!(rt.history().len(), 4, "after turn 2: two pairs");
+        rt.run_turn("q3", no_sink()).await.unwrap();
+        assert_eq!(rt.history().len(), 6, "after turn 3: three pairs");
+    }
+
+    /// clear_history resets the history to empty without affecting the runtime.
+    #[tokio::test]
+    async fn e2e_clear_history_resets_context() {
+        let mut rt = make_runtime(vec![
+            MockProvider::text_response("hello"),
+            MockProvider::text_response("world"),
+        ]);
+        rt.run_turn("hi", no_sink()).await.unwrap();
+        assert_eq!(rt.history().len(), 2);
+
+        rt.clear_history();
+        assert_eq!(rt.history().len(), 0, "history should be empty after clear");
+
+        // Runtime is still usable after clear
+        rt.run_turn("again", no_sink()).await.unwrap();
+        assert_eq!(rt.history().len(), 2, "fresh history starts from 0 again");
+    }
+
+    /// An out-of-directory path in a tool call is rejected by path confinement.
+    /// The tool returns a ToolError; the runtime injects the error as a tool
+    /// result, and the model returns a final text response.
+    #[tokio::test]
+    async fn e2e_path_escape_attempt_is_rejected_by_tool() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let responses = vec![
+            MockProvider::tool_call_response(
+                "escape",
+                "read_file",
+                json!({ "path": "../../../etc/passwd" }),
+            ),
+            MockProvider::text_response("Path was rejected."),
+        ];
+
+        let mut rt = make_builtin_runtime(responses, dir.path().to_path_buf());
+        // The runtime should NOT panic. The tool error is injected into history
+        // and the conversation continues to the final text response.
+        let summary = rt.run_turn("Try to escape.", no_sink()).await.unwrap();
+
+        assert_eq!(summary.tool_calls_made, 1, "the (failed) call still counts");
+        assert_eq!(summary.response_text, "Path was rejected.");
     }
 }

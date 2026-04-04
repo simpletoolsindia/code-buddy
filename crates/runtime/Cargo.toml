@@ -20,6 +20,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
+tempfile.workspace = true
+code-buddy-config = { path = "../config" }
 
 [lints]
 workspace = true
