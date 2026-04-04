@@ -157,8 +157,9 @@ install_binary() {
         fail "Cargo.toml not found in ${REPO_DIR}. Run this script from the repository root."
     fi
 
-    if ! grep -q "code-buddy" "${REPO_DIR}/Cargo.toml" 2>/dev/null; then
-        fail "The Cargo.toml at ${REPO_DIR} does not look like the code-buddy workspace."
+    # Verify the CLI crate exists — more reliable than grepping the workspace manifest.
+    if [ ! -f "${REPO_DIR}/crates/cli/Cargo.toml" ]; then
+        fail "crates/cli/Cargo.toml not found. Is ${REPO_DIR} the code-buddy repository root?"
     fi
 
     # Show existing version if upgrading
