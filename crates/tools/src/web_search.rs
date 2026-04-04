@@ -1,9 +1,9 @@
-//! `web_search` tool — query the web using DuckDuckGo, Brave Search, or `SerpAPI`.
+//! `web_search` tool — query the web using `DuckDuckGo`, Brave Search, or `SerpAPI`.
 //!
 //! # Backend priority (no API key needed for any)
 //! 1. `BRAVE_SEARCH_API_KEY` / `brave_api_key` in config → Brave Search
 //! 2. `SERPAPI_KEY` / `serpapi_key` in config → `SerpAPI`
-//! 3. Neither set → **DuckDuckGo** (free, no key required) via HTML scraping
+//! 3. Neither set → `DuckDuckGo` (free, no key required) via HTML scraping
 //!
 //! # Security
 //! The query string is URL-encoded before being included in the request URL.
@@ -44,7 +44,7 @@ impl WebSearchTool {
     }
 
     /// Resolve backend from environment variables, then provided keys.
-    /// Falls back to DuckDuckGo (free, no key needed) when nothing is configured.
+    /// Falls back to `DuckDuckGo` (free, no key needed) when nothing is configured.
     #[must_use]
     pub fn from_env(brave_key: Option<String>, serpapi_key: Option<String>) -> Self {
         let brave = brave_key
@@ -67,7 +67,7 @@ impl WebSearchTool {
         Self { backend }
     }
 
-    /// Returns `true` if any search backend is available (always true — DuckDuckGo is free).
+    /// Returns `true` if any search backend is available (always true — `DuckDuckGo` is free).
     #[must_use]
     pub fn is_configured(&self) -> bool {
         !matches!(self.backend, SearchBackend::None)

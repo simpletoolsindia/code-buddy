@@ -59,16 +59,13 @@ pub async fn run(_args: SetupArgs) -> i32 {
         "custom",
     ];
 
-    let provider_idx = match Select::with_theme(&theme)
+    let Ok(provider_idx) = Select::with_theme(&theme)
         .items(&providers)
         .default(0)
         .interact()
-    {
-        Ok(i) => i,
-        Err(_) => {
-            eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
-            return 1;
-        }
+    else {
+        eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+        return 1;
     };
     let provider = provider_keys[provider_idx].to_string();
 
@@ -85,15 +82,11 @@ pub async fn run(_args: SetupArgs) -> i32 {
             println!("  Sign up → Click your profile → Copy API Key");
             println!();
             ring_bell();
-            let key: String = match Password::with_theme(&theme)
+            let key: String = if let Ok(k) = Password::with_theme(&theme)
                 .with_prompt("  Paste your NVIDIA API key (starts with nvapi-)")
-                .interact()
-            {
-                Ok(k) => k,
-                Err(_) => {
-                    eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
-                    return 1;
-                }
+                .interact() { k } else {
+                eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+                return 1;
             };
             if !key.trim().is_empty() {
                 api_key = Some(key.trim().to_string());
@@ -106,15 +99,11 @@ pub async fn run(_args: SetupArgs) -> i32 {
             println!("  Get a key at: https://openrouter.ai/keys");
             println!();
             ring_bell();
-            let key: String = match Password::with_theme(&theme)
+            let key: String = if let Ok(k) = Password::with_theme(&theme)
                 .with_prompt("  Paste your OpenRouter API key")
-                .interact()
-            {
-                Ok(k) => k,
-                Err(_) => {
-                    eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
-                    return 1;
-                }
+                .interact() { k } else {
+                eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+                return 1;
             };
             if !key.trim().is_empty() {
                 api_key = Some(key.trim().to_string());
@@ -127,15 +116,11 @@ pub async fn run(_args: SetupArgs) -> i32 {
             println!("  Get a key at: https://platform.openai.com/api-keys");
             println!();
             ring_bell();
-            let key: String = match Password::with_theme(&theme)
+            let key: String = if let Ok(k) = Password::with_theme(&theme)
                 .with_prompt("  Paste your OpenAI API key (starts with sk-)")
-                .interact()
-            {
-                Ok(k) => k,
-                Err(_) => {
-                    eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
-                    return 1;
-                }
+                .interact() { k } else {
+                eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+                return 1;
             };
             if !key.trim().is_empty() {
                 api_key = Some(key.trim().to_string());
@@ -192,14 +177,10 @@ pub async fn run(_args: SetupArgs) -> i32 {
                 Err(_) => "http://localhost:8080/v1".to_string(),
             };
             endpoint = Some(ep.trim().to_string());
-            let key: String = match Input::with_theme(&theme)
+            let key: String = Input::with_theme(&theme)
                 .with_prompt("  API key (press Enter to skip if not needed)")
                 .default(String::new())
-                .interact_text()
-            {
-                Ok(k) => k,
-                Err(_) => String::new(),
-            };
+                .interact_text().unwrap_or_default();
             if !key.trim().is_empty() {
                 api_key = Some(key.trim().to_string());
             }
@@ -293,17 +274,14 @@ pub async fn run(_args: SetupArgs) -> i32 {
         })
         .collect();
 
-    let model_idx = match Select::with_theme(&theme)
+    let Ok(model_idx) = Select::with_theme(&theme)
         .with_prompt("  Type the number and press Enter")
         .items(&help_texts)
         .default(0)
         .interact()
-    {
-        Ok(i) => i,
-        Err(_) => {
-            eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
-            return 1;
-        }
+    else {
+        eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+        return 1;
     };
 
     let selected_model = if model_idx >= display_models.len() - 1 {
@@ -328,15 +306,11 @@ pub async fn run(_args: SetupArgs) -> i32 {
     println!("  This lets Code Buddy search the internet to answer your questions.");
     println!("  {}  Get a free key at: https://brave.com/search/api/", style("ℹ").yellow());
     println!();
-    let enable_search = match Select::with_theme(&theme)
+    let enable_search = Select::with_theme(&theme)
         .with_prompt("  Enable web search?")
         .items(&["No (skip for now)", "Yes, I have a Brave Search key"])
         .default(0)
-        .interact()
-    {
-        Ok(i) => i,
-        Err(_) => 0,
-    };
+        .interact().unwrap_or_default();
 
     let mut brave_api_key: Option<String> = None;
 
@@ -344,13 +318,9 @@ pub async fn run(_args: SetupArgs) -> i32 {
         println!();
         println!("  {}  Paste your Brave Search API key:", style("•").cyan());
         ring_bell();
-        let key: String = match Password::with_theme(&theme)
+        let key: String = Password::with_theme(&theme)
             .with_prompt("  API key")
-            .interact()
-        {
-            Ok(k) => k,
-            Err(_) => String::new(),
-        };
+            .interact().unwrap_or_default();
         if !key.trim().is_empty() {
             brave_api_key = Some(key.trim().to_string());
         }

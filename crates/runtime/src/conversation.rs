@@ -37,6 +37,9 @@
 use std::time::Duration;
 
 use code_buddy_errors::{ProviderError, RuntimeError, ToolError, TransportError};
+
+/// Callback invoked when a tool is about to execute.
+pub type ToolCallback = Box<dyn Fn(&str) + Send>;
 use code_buddy_tools::{
     ToolRegistry,
     parser::{
@@ -76,8 +79,8 @@ pub struct RuntimeConfig {
     /// compaction. Default: `max_tokens * 6` (six response windows of context).
     pub context_token_budget: u32,
     /// Optional callback invoked when a tool is about to execute.
-    /// Useful for UI notifications (e.g. "Running read_file…").
-    pub on_tool_call: Option<Box<dyn Fn(&str) + Send>>,
+    /// Useful for UI notifications (e.g. "Running `read_file`…").
+    pub on_tool_call: Option<ToolCallback>,
 }
 
 impl Default for RuntimeConfig {

@@ -147,7 +147,7 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
             let mut line = String::new();
             if io::stdin().read_line(&mut line).is_err() {
                 continue;
-            };
+            }
             line.trim().to_string()
         };
 
@@ -267,13 +267,10 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
                 } else {
                     eprintln!();
                     eprintln!("  {}  Error: {e}", style("✘").red().bold());
-                    match e.to_string().contains("context") || e.to_string().contains("too large") {
-                        true => {
-                            eprintln!("  {}  Context too long. Type {} to start fresh.", style("ℹ").yellow(), style("/clear").bold());
-                        }
-                        false => {
-                            eprintln!("  {}  Run {} to check your setup.", style("ℹ").yellow(), style("/status").bold());
-                        }
+                    if e.to_string().contains("context") || e.to_string().contains("too large") {
+                        eprintln!("  {}  Context too long. Type {} to start fresh.", style("ℹ").yellow(), style("/clear").bold());
+                    } else {
+                        eprintln!("  {}  Run {} to check your setup.", style("ℹ").yellow(), style("/status").bold());
                     }
                 }
             }
@@ -514,6 +511,7 @@ async fn handle_slash(
 
 // ── Interactive provider switch ───────────────────────────────────────────────
 
+#[allow(clippy::too_many_lines)]
 async fn interactive_provider_switch(config: &AppConfig) -> Result<bool, String> {
     let theme = ColorfulTheme::default();
     println!();
@@ -637,7 +635,7 @@ async fn interactive_provider_switch(config: &AppConfig) -> Result<bool, String>
         "local-model".to_string()
     } else {
         let display: Vec<String> = models.iter().take(15).cloned().collect();
-        let choices: Vec<&str> = display.iter().map(|s| s.as_str()).collect();
+        let choices: Vec<&str> = display.iter().map(std::string::String::as_str).collect();
         let idx = Select::with_theme(&theme)
             .with_prompt("  Choose a model:")
             .items(&choices)
@@ -696,7 +694,7 @@ async fn interactive_model_switch(config: &AppConfig) -> Result<bool, String> {
     }
 
     let display: Vec<String> = models.iter().take(20).cloned().collect();
-    let choices: Vec<&str> = display.iter().map(|s| s.as_str()).collect();
+    let choices: Vec<&str> = display.iter().map(std::string::String::as_str).collect();
 
     println!();
     println!("  {}  Choose a new model:", style("?").cyan());
