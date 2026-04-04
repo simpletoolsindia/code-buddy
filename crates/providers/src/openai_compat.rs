@@ -131,10 +131,15 @@ impl AdapterConfig {
         self
     }
 
-    /// Override max retries.
+    /// Override the maximum number of *retries* (not total attempts).
     ///
-    /// The value is clamped to the hard ceiling of 3 retries to match the retry
-    /// specification (200 ms → 400 ms → 800 ms, max 3 attempts before giving up).
+    /// Setting `max_retries = N` means:
+    /// - 1 initial attempt always occurs.
+    /// - Up to N additional retry attempts on transient failures (5xx, timeout, network).
+    /// - **Total requests** sent = initial + retries = N + 1.
+    ///
+    /// The value is clamped to the hard ceiling of 3 retries (4 total requests maximum)
+    /// matching the spec: backoff 200 ms → 400 ms → 800 ms before giving up.
     #[must_use]
     pub fn with_max_retries(mut self, max_retries: u32) -> Self {
         self.max_retries = max_retries.min(3);
@@ -1380,9 +1385,11 @@ mod tests {
         ])
         .await;
 
+        // max_retries=1 means: 1 initial request + 1 retry = 2 total requests sent.
+        // After both fail with 503, RetriesExhausted should be returned with attempts=2.
         let cfg = AdapterConfig::lm_studio()
             .with_base_url_override(base_url)
-            .with_max_retries(1) // 1 initial + 1 retry = 2 total attempts
+            .with_max_retries(1) // 1 retry → 2 total requests
             .with_timeout(Duration::from_secs(5));
 
         let adapter = OpenAiCompatAdapter::new(cfg);
@@ -1395,7 +1402,7 @@ mod tests {
             matches!(
                 err,
                 TransportError::RetriesExhausted {
-                    attempts: 2, // 1 initial + 1 retry
+                    attempts: 2, // 1 initial + 1 retry = 2 total requests
                     ..
                 }
             ),

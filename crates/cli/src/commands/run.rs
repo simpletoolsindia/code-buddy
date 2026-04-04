@@ -111,6 +111,7 @@ pub async fn run(config: &AppConfig, _args: RunArgs) -> i32 {
                     continue;
                 }
                 Ok(mut source) => {
+                    let mut stream_error = false;
                     loop {
                         match source.next_event().await {
                             Ok(None) => break,
@@ -134,12 +135,16 @@ pub async fn run(config: &AppConfig, _args: RunArgs) -> i32 {
                             }
                             Err(e) => {
                                 eprintln!("\nStream error: {e}");
+                                stream_error = true;
                                 break;
                             }
                         }
                     }
 
-                    if !response_text.is_empty() {
+                    if stream_error {
+                        // Remove the user message — the turn did not complete cleanly.
+                        history.pop();
+                    } else if !response_text.is_empty() {
                         history.push(InputMessage::assistant_text(response_text));
                     }
                 }
