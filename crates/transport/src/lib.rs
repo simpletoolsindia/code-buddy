@@ -14,6 +14,7 @@ pub use message::{
     ContentBlock, InputContentBlock, InputMessage, MessageRequest, MessageResponse,
     OutputContentBlock, StreamEvent, ToolChoice, ToolDefinition, Usage,
 };
+pub use sse::SseParser;
 
 /// The core provider trait.
 ///

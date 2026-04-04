@@ -42,33 +42,67 @@ pub enum ConfigError {
     NoConfigDir,
 }
 
-/// Transport errors — network and HTTP-level failures.
-#[derive(Debug, Error)]
+/// Transport errors — network, HTTP, parse, and authentication failures.
+///
+/// These are the primary error type returned by provider adapters and the
+/// streaming transport. Each variant carries the provider name for clear
+/// user-facing messages.
+#[derive(Debug, Clone, Error)]
 pub enum TransportError {
-    #[error("HTTP request failed: {0}")]
-    Http(String),
+    /// A network-level error (DNS, connection, etc.) that is retryable.
+    #[error("[{provider}] Network error: {detail}")]
+    Network { provider: String, detail: String },
 
-    #[error("Connection timed out after {seconds}s to {url}")]
-    Timeout { seconds: u64, url: String },
+    /// A TCP connection failure (server not running, port closed).
+    #[error("[{provider}] Connection failed: {detail}")]
+    Connection { provider: String, detail: String },
 
-    #[error("Connection refused to {url}. Is the server running?")]
-    ConnectionRefused { url: String },
-
-    #[error("TLS error connecting to {url}: {reason}")]
-    Tls { url: String, reason: String },
-
-    #[error("Failed to parse response from {url}: {reason}")]
-    ResponseParse { url: String, reason: String },
-
-    #[error("Server error {status} from {url}: {body}")]
-    ServerError {
-        status: u16,
-        url: String,
-        body: String,
+    /// Request timed out.
+    #[error("[{provider}] Request timed out after {timeout_secs}s")]
+    Timeout {
+        provider: String,
+        timeout_secs: u64,
     },
 
-    #[error("SSE stream error: {0}")]
-    SseStream(String),
+    /// HTTP 4xx/5xx error from the provider API.
+    #[error("[{provider}] API error {status}: {message}")]
+    ApiError {
+        provider: String,
+        status: u16,
+        message: String,
+    },
+
+    /// Authentication failure (missing or invalid API key).
+    #[error("[{provider}] Missing credentials — set {env_var} or configure api_key")]
+    MissingCredentials { provider: String, env_var: String },
+
+    /// Response body parse failure.
+    #[error("[{provider}] Failed to parse response: {detail}")]
+    Parse { provider: String, detail: String },
+
+    /// SSE stream parse error.
+    #[error("[{provider}] SSE stream error: {detail}")]
+    Sse { provider: String, detail: String },
+
+    /// Retries exhausted after transient errors.
+    #[error("[{provider}] All {attempts} attempts failed: {last_error}")]
+    RetriesExhausted {
+        provider: String,
+        attempts: u32,
+        last_error: String,
+    },
+
+    /// Configuration error preventing provider construction.
+    #[error("Provider config error: {detail}")]
+    Config { detail: String },
+}
+
+impl TransportError {
+    /// Whether this error is likely transient and worth retrying.
+    #[must_use]
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Network { .. } | Self::Timeout { .. } | Self::Connection { .. })
+    }
 }
 
 /// Provider errors — problems with LLM provider communication or authentication.
@@ -155,4 +189,3 @@ pub enum RuntimeError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
-
