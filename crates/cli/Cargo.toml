@@ -30,6 +30,7 @@ dirs.workspace = true
 dialoguer.workspace = true
 indicatif.workspace = true
 console.workspace = true
+rustyline = "14"
 reqwest.workspace = true
 
 [lints]

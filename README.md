@@ -45,6 +45,8 @@
 | **Tool calling** | Read, write, and search files; run shell commands; search the web |
 | **Terminal bell** | Rings when Code Buddy finishes thinking and is ready |
 | **Streaming** | Watch the AI think and respond in real time |
+| **Tab completion** | Press Tab to autocomplete slash commands |
+| **Switch LLM mid-session** | Type `/provider` or `/model` to switch LLM without restarting |
 
 ---
 
@@ -86,8 +88,8 @@ code-buddy ask "How do I reverse a string in Python?"
 | `/clear` | Start a new conversation |
 | `/status` | Check provider, model, and tools |
 | `/tools` | See all available tools |
-| `/model` | Show current model |
-| `/provider` | Show current provider and URL |
+| `/provider` | Switch to a different AI provider (interactive) |
+| `/model` | Switch to a different model (interactive) |
 
 ---
 
@@ -103,7 +105,7 @@ Code Buddy has built-in tools it can use to help you. No extra setup needed.
 | `glob_search` | Find files by pattern (e.g. `*.rs`) |
 | `grep_search` | Search inside files for text |
 | `run_shell` | Execute shell commands |
-| `web_search` | Search the internet (needs Brave API key) |
+| `web_search` | Search the internet (free, no key needed) |
 | `web_fetch` | Read a webpage as clean text |
 
 ---
@@ -115,7 +117,7 @@ Run `code-buddy setup` anytime to reconfigure. The wizard:
 1. **Choose provider** — numbered list, no arrow keys needed
 2. **Enter API key** — or press Enter for local servers
 3. **Pick a model** — popular models shown first
-4. **Enable web search** — optional (needs [Brave Search API key](https://brave.com/search/api/))
+4. **Enable web search** — optional (uses DuckDuckGo by default, no key needed)
 
 For **NVIDIA** (recommended for new users):
 - Get a free key at [build.nvidia.com](https://build.nvidia.com/)
@@ -155,7 +157,8 @@ Every setting can be overridden with an env var:
 | Endpoint | `CODE_BUDDY_ENDPOINT` | provider default |
 | Streaming | `CODE_BUDDY_STREAMING` | `true` |
 | Timeout | `CODE_BUDDY_TIMEOUT_SECONDS` | `120` |
-| Brave API Key | `BRAVE_SEARCH_API_KEY` | — |
+| Brave API Key | `BRAVE_SEARCH_API_KEY` | — (optional, for Brave Search) |
+| SerpAPI Key | `SERPAPI_KEY` | — (optional, for SerpAPI) |
 
 Example with environment variables:
 
@@ -169,7 +172,10 @@ code-buddy ask "Hello"
 ### Web search
 
 ```bash
-# Brave Search (preferred) — https://brave.com/search/api/
+# DuckDuckGo (free, no API key needed — enabled by default)
+# No configuration needed! Works out of the box.
+
+# Brave Search (higher quality) — https://brave.com/search/api/
 code-buddy config set brave_api_key YOUR_KEY
 
 # SerpAPI (fallback) — https://serpapi.com/

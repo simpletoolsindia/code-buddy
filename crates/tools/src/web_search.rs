@@ -1,9 +1,9 @@
-//! `web_search` tool — query the web using Brave Search or `SerpAPI`.
+//! `web_search` tool — query the web using DuckDuckGo, Brave Search, or `SerpAPI`.
 //!
-//! # API key priority
+//! # Backend priority (no API key needed for any)
 //! 1. `BRAVE_SEARCH_API_KEY` / `brave_api_key` in config → Brave Search
 //! 2. `SERPAPI_KEY` / `serpapi_key` in config → `SerpAPI`
-//! 3. Neither set → tool returns a "no API key configured" result (no panic)
+//! 3. Neither set → **DuckDuckGo** (free, no key required) via HTML scraping
 //!
 //! # Security
 //! The query string is URL-encoded before being included in the request URL.
@@ -14,6 +14,8 @@ use code_buddy_errors::ToolError;
 use serde_json::{Value, json};
 use tracing::instrument;
 use url::Url;
+use websearch::providers::DuckDuckGoProvider;
+use websearch::{SearchOptions, web_search};
 
 use crate::Tool;
 
@@ -23,6 +25,7 @@ const REQUEST_TIMEOUT_SECS: u64 = 15;
 /// Backend to use for web search.
 #[derive(Debug, Clone)]
 pub enum SearchBackend {
+    DuckDuckGo,
     Brave { api_key: String },
     SerpApi { api_key: String },
     None,
@@ -41,6 +44,7 @@ impl WebSearchTool {
     }
 
     /// Resolve backend from environment variables, then provided keys.
+    /// Falls back to DuckDuckGo (free, no key needed) when nothing is configured.
     #[must_use]
     pub fn from_env(brave_key: Option<String>, serpapi_key: Option<String>) -> Self {
         let brave = brave_key
@@ -56,13 +60,14 @@ impl WebSearchTool {
         } else if let Some(key) = serp {
             SearchBackend::SerpApi { api_key: key }
         } else {
-            SearchBackend::None
+            // DuckDuckGo is always available — no API key needed
+            SearchBackend::DuckDuckGo
         };
 
         Self { backend }
     }
 
-    /// Returns `true` if a search API key is configured.
+    /// Returns `true` if any search backend is available (always true — DuckDuckGo is free).
     #[must_use]
     pub fn is_configured(&self) -> bool {
         !matches!(self.backend, SearchBackend::None)
@@ -79,7 +84,8 @@ impl Tool for WebSearchTool {
         "Search the web for current information. Returns a list of results with \
          title, URL, and a short snippet. Use this to look up recent events, \
          documentation, or any information that may have changed after your \
-         training cutoff. Requires BRAVE_SEARCH_API_KEY or SERPAPI_KEY to be set."
+         training cutoff. Uses DuckDuckGo by default (free, no API key needed). \
+         Optionally configure BRAVE_SEARCH_API_KEY or SERPAPI_KEY for higher quality results."
     }
 
     fn input_schema(&self) -> Value {
@@ -122,6 +128,9 @@ impl Tool for WebSearchTool {
                  Set BRAVE_SEARCH_API_KEY or SERPAPI_KEY to enable web search."
                     .to_string(),
             ),
+            SearchBackend::DuckDuckGo => {
+                duckduckgo_search(&query, max_results).await
+            }
             SearchBackend::Brave { api_key } => {
                 brave_search(&query, max_results, api_key).await
             }
@@ -244,6 +253,40 @@ async fn serpapi_search(query: &str, count: u32, api_key: &str) -> Result<String
     })
 }
 
+// ── DuckDuckGo (free, no API key) ─────────────────────────────────────────────
+
+async fn duckduckgo_search(query: &str, max_results: u32) -> Result<String, ToolError> {
+    let provider = DuckDuckGoProvider::new();
+    let options = SearchOptions {
+        query: query.to_string(),
+        max_results: Some(max_results),
+        debug: None,
+        provider: Box::new(provider),
+        ..Default::default()
+    };
+
+    let results = web_search(options).await.map_err(|e| ToolError::ExecutionFailed {
+        tool: "web_search".to_string(),
+        reason: format!("DuckDuckGo search failed: {e}"),
+    })?;
+
+    let formatted: Vec<Value> = results
+        .into_iter()
+        .map(|r| {
+            json!({
+                "title": r.title,
+                "url": r.url,
+                "snippet": r.snippet.unwrap_or_default()
+            })
+        })
+        .collect();
+
+    serde_json::to_string_pretty(&formatted).map_err(|e| ToolError::ExecutionFailed {
+        tool: "web_search".to_string(),
+        reason: e.to_string(),
+    })
+}
+
 // ── Shared ────────────────────────────────────────────────────────────────────
 
 fn http_client() -> Result<reqwest::Client, ToolError> {
@@ -263,9 +306,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_key_returns_not_configured_message() {
+    fn no_key_uses_duckduckgo() {
         let tool = WebSearchTool::from_env(None, None);
-        assert!(!tool.is_configured());
+        assert!(tool.is_configured());
+        assert!(matches!(tool.backend, SearchBackend::DuckDuckGo));
     }
 
     #[test]
@@ -292,7 +336,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn no_key_execute_returns_message() {
+    async fn none_backend_execute_returns_message() {
         let tool = WebSearchTool::new(SearchBackend::None);
         let result = tool.execute(json!({"query": "test"})).await.unwrap();
         assert!(result.contains("not configured"));
