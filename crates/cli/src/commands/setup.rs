@@ -1,23 +1,27 @@
-//! `setup` subcommand — interactive first-run wizard.
+//! `setup` subcommand — simple first-run wizard for all users.
 //!
-//! Guides the user through:
-//! 1. Provider selection
-//! 2. API key entry (providers that require one)
-//! 3. Live model-list fetch → fuzzy model selection
-//! 4. Optional web search key (Brave / `SerpAPI`)
-//! 5. Optional Firecrawl key for page fetching
-//! 6. Writes the result to `~/.config/code-buddy/config.toml`
+//! Guides non-technical users through:
+//! 1. Choose your AI provider (numbered list)
+//! 2. Enter API key or server URL
+//! 3. Pick a model (popular choices shown first)
+//! 4. Optional: enable web search
 //!
 //! Falls back gracefully when not running in a TTY.
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Write};
 
 use code_buddy_config::AppConfig;
 use code_buddy_providers::model_list as ml;
 use console::style;
-use dialoguer::{FuzzySelect, Input, Password, Select, theme::ColorfulTheme};
+use dialoguer::{Input, Password, Select, theme::ColorfulTheme};
 
 use crate::args::SetupArgs;
+
+/// Ring the terminal bell to get the user's attention.
+fn ring_bell() {
+    print!("\x07");
+    let _ = std::io::stdout().flush();
+}
 
 #[allow(clippy::too_many_lines)]
 pub async fn run(_args: SetupArgs) -> i32 {
@@ -30,159 +34,193 @@ pub async fn run(_args: SetupArgs) -> i32 {
         return 1;
     }
 
-    print_wizard_banner();
+    print_intro();
 
     let theme = ColorfulTheme::default();
 
     // ── Step 1: Provider ──────────────────────────────────────────────────────
+    println!();
+    println!("  {}  Which AI service do you want to use?", style("1.").cyan().bold());
+    println!();
     let providers = vec![
-        "lm-studio   (local/remote, no API key)",
-        "ollama      (local/remote, no API key)",
-        "openrouter  (cloud, 200+ models)",
-        "openai      (cloud, GPT-4o / o1 / o3)",
-        "nvidia      (cloud, NIM endpoint)",
-        "custom      (custom OpenAI-compat endpoint)",
+        "NVIDIA          — Free credits, fast, no setup (recommended)",
+        "OpenRouter      — 200+ models, supports free models",
+        "OpenAI          — GPT-4o, o1, o3 (requires account)",
+        "LM Studio       — Run models on your own computer (free)",
+        "Ollama          — Another free local option (no GPU needed)",
+        "Custom endpoint — Connect to any OpenAI-compatible API",
     ];
     let provider_keys = [
-        "lm-studio",
-        "ollama",
+        "nvidia",
         "openrouter",
         "openai",
-        "nvidia",
+        "lm-studio",
+        "ollama",
         "custom",
     ];
 
-    println!(
-        "\n  {} Select a provider:",
-        style("Step 1").cyan().bold()
-    );
-    let provider_idx = Select::with_theme(&theme)
+    let provider_idx = match Select::with_theme(&theme)
         .items(&providers)
         .default(0)
         .interact()
-        .unwrap_or(0);
+    {
+        Ok(i) => i,
+        Err(_) => {
+            eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+            return 1;
+        }
+    };
     let provider = provider_keys[provider_idx].to_string();
 
-    // ── Step 2: API key / endpoint ────────────────────────────────────────────
+    // ── Step 2: API key or URL ─────────────────────────────────────────────────
     let mut api_key: Option<String> = None;
     let mut endpoint: Option<String> = None;
 
     match provider.as_str() {
-        "openrouter" => {
-            println!(
-                "\n  {} OpenRouter API key (from openrouter.ai/keys):",
-                style("Step 2").cyan().bold()
-            );
-            let key: String = Password::with_theme(&theme)
-                .with_prompt("  API key")
+        "nvidia" => {
+            println!();
+            println!("  {}  NVIDIA needs an API key to connect.", style("2.").cyan().bold());
+            println!();
+            println!("  Get your free key at: https://build.nvidia.com/");
+            println!("  Sign up → Click your profile → Copy API Key");
+            println!();
+            ring_bell();
+            let key: String = match Password::with_theme(&theme)
+                .with_prompt("  Paste your NVIDIA API key (starts with nvapi-)")
                 .interact()
-                .unwrap_or_default();
-            if !key.is_empty() {
-                api_key = Some(key);
+            {
+                Ok(k) => k,
+                Err(_) => {
+                    eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+                    return 1;
+                }
+            };
+            if !key.trim().is_empty() {
+                api_key = Some(key.trim().to_string());
+            }
+        }
+        "openrouter" => {
+            println!();
+            println!("  {}  OpenRouter needs an API key.", style("2.").cyan().bold());
+            println!();
+            println!("  Get a key at: https://openrouter.ai/keys");
+            println!();
+            ring_bell();
+            let key: String = match Password::with_theme(&theme)
+                .with_prompt("  Paste your OpenRouter API key")
+                .interact()
+            {
+                Ok(k) => k,
+                Err(_) => {
+                    eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+                    return 1;
+                }
+            };
+            if !key.trim().is_empty() {
+                api_key = Some(key.trim().to_string());
             }
         }
         "openai" => {
-            println!(
-                "\n  {} OpenAI API key:",
-                style("Step 2").cyan().bold()
-            );
-            let key: String = Password::with_theme(&theme)
-                .with_prompt("  API key (sk-...)")
+            println!();
+            println!("  {}  OpenAI needs an API key.", style("2.").cyan().bold());
+            println!();
+            println!("  Get a key at: https://platform.openai.com/api-keys");
+            println!();
+            ring_bell();
+            let key: String = match Password::with_theme(&theme)
+                .with_prompt("  Paste your OpenAI API key (starts with sk-)")
                 .interact()
-                .unwrap_or_default();
-            if !key.is_empty() {
-                api_key = Some(key);
-            }
-        }
-        "nvidia" => {
-            println!(
-                "\n  {} NVIDIA NIM API key:",
-                style("Step 2").cyan().bold()
-            );
-            let key: String = Password::with_theme(&theme)
-                .with_prompt("  API key (nvapi-...)")
-                .interact()
-                .unwrap_or_default();
-            if !key.is_empty() {
-                api_key = Some(key);
-            }
-        }
-        "custom" => {
-            println!(
-                "\n  {} Custom OpenAI-compatible endpoint:",
-                style("Step 2").cyan().bold()
-            );
-            let ep: String = Input::with_theme(&theme)
-                .with_prompt("  Base URL (e.g. http://localhost:8080/v1)")
-                .default("http://localhost:8080/v1".to_string())
-                .interact_text()
-                .unwrap_or_default();
-            if !ep.is_empty() {
-                endpoint = Some(ep);
-            }
-            let key: String = Input::with_theme(&theme)
-                .with_prompt("  API key (leave blank if not required)")
-                .default(String::new())
-                .interact_text()
-                .unwrap_or_default();
-            if !key.is_empty() {
-                api_key = Some(key);
+            {
+                Ok(k) => k,
+                Err(_) => {
+                    eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+                    return 1;
+                }
+            };
+            if !key.trim().is_empty() {
+                api_key = Some(key.trim().to_string());
             }
         }
         "lm-studio" => {
-            println!(
-                "\n  {} LM Studio endpoint (default: http://localhost:1234):",
-                style("Step 2").cyan().bold()
-            );
-            println!(
-                "  {} Use a remote host for remote access (e.g. http://192.168.1.100:1234)",
-                style("ℹ").yellow()
-            );
-            let ep: String = Input::with_theme(&theme)
-                .with_prompt("  Endpoint")
+            println!();
+            println!("  {}  LM Studio URL", style("2.").cyan().bold());
+            println!();
+            println!("  {}  Start LM Studio on your computer, then press Enter.", style("ℹ").yellow());
+            println!("  {}  Or enter a remote URL like http://192.168.1.100:1234", style("ℹ").yellow());
+            println!();
+            let ep: String = match Input::with_theme(&theme)
+                .with_prompt("  Press Enter for local (localhost:1234)")
                 .default("http://localhost:1234".to_string())
                 .interact_text()
-                .unwrap_or_default();
+            {
+                Ok(e) => e,
+                Err(_) => "http://localhost:1234".to_string(),
+            };
             if ep != "http://localhost:1234" {
-                endpoint = Some(ep);
+                endpoint = Some(ep.trim().to_string());
             }
         }
         "ollama" => {
-            println!(
-                "\n  {} Ollama endpoint (default: http://localhost:11434):",
-                style("Step 2").cyan().bold()
-            );
-            println!(
-                "  {} Use a remote host for remote access (e.g. http://192.168.1.100:11434)",
-                style("ℹ").yellow()
-            );
-            let ep: String = Input::with_theme(&theme)
-                .with_prompt("  Endpoint")
+            println!();
+            println!("  {}  Ollama URL", style("2.").cyan().bold());
+            println!();
+            println!("  {}  Start Ollama (run 'ollama serve'), then press Enter.", style("ℹ").yellow());
+            println!("  {}  Or enter a remote URL like http://192.168.1.100:11434", style("ℹ").yellow());
+            println!();
+            let ep: String = match Input::with_theme(&theme)
+                .with_prompt("  Press Enter for local (localhost:11434)")
                 .default("http://localhost:11434".to_string())
                 .interact_text()
-                .unwrap_or_default();
+            {
+                Ok(e) => e,
+                Err(_) => "http://localhost:11434".to_string(),
+            };
             if ep != "http://localhost:11434" {
-                endpoint = Some(ep);
+                endpoint = Some(ep.trim().to_string());
+            }
+        }
+        "custom" => {
+            println!();
+            println!("  {}  Custom API URL", style("2.").cyan().bold());
+            println!();
+            let ep: String = match Input::with_theme(&theme)
+                .with_prompt("  Enter the API URL")
+                .default("http://localhost:8080/v1".to_string())
+                .interact_text()
+            {
+                Ok(e) => e,
+                Err(_) => "http://localhost:8080/v1".to_string(),
+            };
+            endpoint = Some(ep.trim().to_string());
+            let key: String = match Input::with_theme(&theme)
+                .with_prompt("  API key (press Enter to skip if not needed)")
+                .default(String::new())
+                .interact_text()
+            {
+                Ok(k) => k,
+                Err(_) => String::new(),
+            };
+            if !key.trim().is_empty() {
+                api_key = Some(key.trim().to_string());
             }
         }
         _ => {}
     }
 
     // ── Step 3: Model selection ───────────────────────────────────────────────
-    println!(
-        "\n  {} Fetching available models…",
-        style("Step 3").cyan().bold()
-    );
+    println!();
+    println!("  {}  Finding the best models for you…", style("3.").cyan().bold());
+    println!();
 
     let spinner = indicatif::ProgressBar::new_spinner();
     spinner.set_style(
         indicatif::ProgressStyle::with_template("  {spinner:.cyan} {msg}")
             .expect("valid template"),
     );
-    spinner.set_message("Querying provider API…");
+    spinner.set_message("Connecting to provider…");
     spinner.enable_steady_tick(std::time::Duration::from_millis(80));
 
-    let mut models = match provider.as_str() {
+    let models = match provider.as_str() {
         "lm-studio" => {
             let host = endpoint.as_deref();
             ml::fetch_lm_studio_models(host).await
@@ -217,123 +255,196 @@ pub async fn run(_args: SetupArgs) -> i32 {
 
     spinner.finish_and_clear();
 
-    let selected_model = if models.is_empty() {
-        println!(
-            "  {} Could not fetch models. Enter the model name manually:",
-            style("ℹ").yellow()
-        );
-        let m: String = Input::with_theme(&theme)
+    if models.is_empty() {
+        println!();
+        println!("  {}  Could not reach the provider. Enter model name manually:", style("⚠").yellow());
+        println!();
+        let m: String = match Input::with_theme(&theme)
             .with_prompt("  Model name")
             .default("local-model".to_string())
             .interact_text()
-            .unwrap_or_else(|_| "local-model".to_string());
-        m
-    } else {
-        models.push("[ Enter manually ]".to_string());
-        let idx = FuzzySelect::with_theme(&theme)
-            .with_prompt("  Search and select a model")
-            .items(&models)
-            .default(0)
-            .interact()
-            .unwrap_or(0);
+        {
+            Ok(m) => m,
+            Err(_) => "local-model".to_string(),
+        };
+        print_summary_and_save(&provider, &m, endpoint, api_key);
+        return 0;
+    }
 
-        if idx == models.len() - 1 {
-            Input::with_theme(&theme)
-                .with_prompt("  Model name")
-                .interact_text()
-                .unwrap_or_else(|_| "local-model".to_string())
-        } else {
-            models[idx].clone()
+    // Show top 15 models in a simple numbered list
+    let mut display_models: Vec<String> = if models.len() > 15 {
+        models.iter().take(15).cloned().collect()
+    } else {
+        models.clone()
+    };
+    display_models.push("[ Other model ]".to_string());
+
+    println!();
+    println!("  {}  Choose a model:", style("3.").cyan().bold());
+    println!();
+    let help_texts: Vec<String> = display_models
+        .iter()
+        .map(|m| {
+            if m.contains("llama-3.3-70b") || m.contains("mistral-large") || m.contains("gpt-4o") {
+                format!("{m}  (popular)", )
+            } else {
+                m.clone()
+            }
+        })
+        .collect();
+
+    let model_idx = match Select::with_theme(&theme)
+        .with_prompt("  Type the number and press Enter")
+        .items(&help_texts)
+        .default(0)
+        .interact()
+    {
+        Ok(i) => i,
+        Err(_) => {
+            eprintln!("\n  {} Setup cancelled.\n", style("✘").red());
+            return 1;
         }
     };
 
-    // ── Step 4: Web search key (optional) ────────────────────────────────────
-    println!(
-        "\n  {} Web search (optional — enables the web_search tool):",
-        style("Step 4").cyan().bold()
-    );
-    println!("  Get a free key at: https://brave.com/search/api/");
-    let brave_key: String = Input::with_theme(&theme)
-        .with_prompt("  Brave Search API key (leave blank to skip)")
-        .default(String::new())
-        .interact_text()
-        .unwrap_or_default();
+    let selected_model = if model_idx >= display_models.len() - 1 {
+        println!();
+        let m: String = match Input::with_theme(&theme)
+            .with_prompt("  Enter the model name")
+            .default("local-model".to_string())
+            .interact_text()
+        {
+            Ok(m) => m,
+            Err(_) => "local-model".to_string(),
+        };
+        m
+    } else {
+        display_models[model_idx].clone()
+    };
 
-    // ── Step 5: Firecrawl key (optional) ─────────────────────────────────────
-    println!(
-        "\n  {} Firecrawl (optional — improves web_fetch quality):",
-        style("Step 5").cyan().bold()
-    );
-    println!("  Get a key at: https://firecrawl.dev");
-    let firecrawl_key: String = Input::with_theme(&theme)
-        .with_prompt("  Firecrawl API key (leave blank to skip)")
-        .default(String::new())
-        .interact_text()
-        .unwrap_or_default();
+    // ── Step 4: Web search (optional) ────────────────────────────────────────
+    println!();
+    println!("  {}  Enable web search?", style("4.").cyan().bold());
+    println!();
+    println!("  This lets Code Buddy search the internet to answer your questions.");
+    println!("  {}  Get a free key at: https://brave.com/search/api/", style("ℹ").yellow());
+    println!();
+    let enable_search = match Select::with_theme(&theme)
+        .with_prompt("  Enable web search?")
+        .items(&["No (skip for now)", "Yes, I have a Brave Search key"])
+        .default(0)
+        .interact()
+    {
+        Ok(i) => i,
+        Err(_) => 0,
+    };
 
-    // ── Write config ──────────────────────────────────────────────────────────
-    let mut config = AppConfig {
-        provider: provider.clone(),
-        model: Some(selected_model.clone()),
+    let mut brave_api_key: Option<String> = None;
+
+    if enable_search == 1 {
+        println!();
+        println!("  {}  Paste your Brave Search API key:", style("•").cyan());
+        ring_bell();
+        let key: String = match Password::with_theme(&theme)
+            .with_prompt("  API key")
+            .interact()
+        {
+            Ok(k) => k,
+            Err(_) => String::new(),
+        };
+        if !key.trim().is_empty() {
+            brave_api_key = Some(key.trim().to_string());
+        }
+    }
+
+    // ── Save ──────────────────────────────────────────────────────────────────
+    print_summary_and_save(
+        &provider,
+        &selected_model,
+        endpoint,
+        api_key.clone(),
+    );
+
+    // Show web search result
+    if brave_api_key.is_some() {
+        println!();
+        println!(
+            "  {}  Web search enabled!",
+            style("✔").green()
+        );
+    }
+
+    println!();
+    println!("  {}  You're all set! Run {} to start.", style("✔").green(), style("code-buddy").bold());
+    println!();
+    0
+}
+
+fn print_summary_and_save(
+    provider: &str,
+    model: &str,
+    endpoint: Option<String>,
+    api_key: Option<String>,
+) {
+    let config = AppConfig {
+        provider: provider.to_string(),
+        model: Some(model.to_string()),
         endpoint,
         api_key,
         ..Default::default()
     };
-    if !brave_key.is_empty() {
-        config.brave_api_key = Some(brave_key);
-    }
-    if !firecrawl_key.is_empty() {
-        config.firecrawl_api_key = Some(firecrawl_key);
-    }
 
     match config.save() {
         Ok(path) => {
             println!();
             println!(
-                "  {} Configuration saved to {}",
-                style("✔").green().bold(),
+                "  {}  Saved to: {}",
+                style("✔").green(),
                 style(path.display().to_string()).underlined()
             );
             println!();
-            println!("  Summary:");
-            println!("    Provider : {}", style(&provider).cyan());
-            println!("    Model    : {}", style(&selected_model).cyan());
+            println!("  Configuration:");
+            println!("    Provider : {}", style(&config.provider).cyan());
+            println!("    Model    : {}", style(config.model.as_deref().unwrap_or("–")).cyan());
             println!();
-            println!(
-                "  Run {} to start coding!",
-                style("code-buddy").bold()
-            );
-            println!();
-            0
         }
         Err(e) => {
             eprintln!(
-                "\n  {} Failed to save config: {e}",
-                style("✘").red().bold()
+                "\n  {}  Failed to save config: {e}\n",
+                style("✘").red()
             );
-            1
         }
     }
 }
 
-fn print_wizard_banner() {
+fn print_intro() {
     println!();
     println!(
         "  {}",
-        style("╭──────────────────────────────────────────╮").dim()
+        style("╭────────────────────────────────────────────────────────────╮").dim()
     );
     println!(
-        "  {} {}  {}",
+        "  {}  {}  {}",
         style("│").dim(),
         style("✻").magenta().bold(),
-        style("Code Buddy — Setup Wizard                │").bold()
+        style("Welcome to Code Buddy!                              │").bold()
     );
     println!(
         "  {}",
-        style("╰──────────────────────────────────────────╯").dim()
+        style("╰────────────────────────────────────────────────────────────╯").dim()
     );
     println!();
-    println!("  This wizard will configure your AI provider, model, and optional");
-    println!("  web search keys. Settings are saved to ~/.config/code-buddy/config.toml");
-    println!("  and can be changed at any time with `code-buddy config set <field> <value>`.");
+    println!(
+        "  {}  Let's set up Code Buddy in a few quick steps.",
+        style("●").green()
+    );
+    println!();
+    println!(
+        "  This will save your settings to {}",
+        style("~/.config/code-buddy/config.toml").underlined()
+    );
+    println!(
+        "  You can change settings anytime with {}",
+        style("code-buddy config set <field> <value>").dim()
+    );
+    println!();
 }

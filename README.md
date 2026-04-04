@@ -3,20 +3,20 @@
 ```
   ██████╗ ██████╗ ██████╗ ███████╗    ██████╗ ██╗   ██╗██████╗ ██████╗ ██╗   ██╗
  ██╔════╝██╔═══██╗██╔══██╗██╔════╝    ██╔══██╗██║   ██║██╔══██╗██╔══██╗╚██╗ ██╔╝
- ██║     ██║   ██║██║  ██║█████╗      ██████╔╝██║   ██║██║  ██║██║  ██║ ╚████╔╝ 
- ██║     ██║   ██║██║  ██║██╔══╝      ██╔══██╗██║   ██║██║  ██║██║  ██║  ╚██╔╝  
- ╚██████╗╚██████╔╝██████╔╝███████╗    ██████╔╝╚██████╔╝██████╔╝██████╔╝   ██║   
-  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝    ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝   ╚═╝   
+ ██║     ██║   ██║██║  ██║█████╗      ██████╔╝██║   ██║██║  ██║██║  ██║ ╚████╔╝
+ ██║     ██║   ██║██║  ██║██╔══╝      ██╔══██╗██║   ██║██║  ██║██║  ██║  ╚██╔╝
+ ╚██████╗╚██████╔╝██████╔╝███████╗    ██████╔╝╚██████╔╝██████╔╝██████╔╝   ██║
+  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝    ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝   ╚═╝
 ```
 
-**AI coding assistant for your terminal**
+**AI coding assistant for your terminal — simple enough for anyone**
 
 [![CI](https://github.com/simpletoolsindia/code-buddy/actions/workflows/ci.yml/badge.svg)](https://github.com/simpletoolsindia/code-buddy/actions/workflows/ci.yml)
 [![Release](https://github.com/simpletoolsindia/code-buddy/actions/workflows/release.yml/badge.svg)](https://github.com/simpletoolsindia/code-buddy/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.80%2B-orange?logo=rust)](https://www.rust-lang.org/)
 
-*Claude Code-style TUI · File & shell tools · Web search · Ollama · LM Studio · OpenRouter · OpenAI*
+*Claude Code-style TUI · File & shell tools · Web search · NVIDIA · Ollama · LM Studio · OpenRouter · OpenAI*
 
 </div>
 
@@ -24,63 +24,27 @@
 
 ## Quick Install
 
-<table>
-<tr>
-<td><b>Linux & macOS</b></td>
-<td>
+| Platform | Command |
+|:---|:---|
+| **Linux & macOS** | `curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh \| sh` |
+| **Windows** | `irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 \| iex` |
+| **Homebrew** | `brew install simpletoolsindia/tap/code-buddy` |
+| **Cargo** | `cargo install --git https://github.com/simpletoolsindia/code-buddy --bin code-buddy --locked` |
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh
-```
-
-</td>
-</tr>
-<tr>
-<td><b>Windows</b></td>
-<td>
-
-```powershell
-irm https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.ps1 | iex
-```
-
-</td>
-</tr>
-<tr>
-<td><b>Homebrew</b></td>
-<td>
-
-```bash
-brew install simpletoolsindia/tap/code-buddy
-```
-
-</td>
-</tr>
-<tr>
-<td><b>Cargo</b></td>
-<td>
-
-```bash
-cargo install --git https://github.com/simpletoolsindia/code-buddy --bin code-buddy --locked
-```
-
-</td>
-</tr>
-</table>
-
-> **Tip:** After install, just run `code-buddy` — the setup wizard launches automatically on first run.
+> **First run**: just type `code-buddy`. The setup wizard launches automatically and guides you step by step.
 
 ---
 
 ## Features
 
-| | |
-|---|---|
-| **Interactive TUI** | Coloured banner, live streaming spinner, slash commands |
-| **Setup wizard** | One-time guided config — pick provider → model → API keys |
-| **Live model list** | Auto-fetches available models from Ollama, LM Studio, OpenRouter, OpenAI |
-| **Built-in tools** | Read/write files, run shell commands, search the web, fetch pages |
-| **Web search** | Brave Search (or SerpAPI fallback) + Firecrawl page extraction |
-| **Multi-provider** | Ollama, LM Studio, OpenRouter, OpenAI, NVIDIA, or any OpenAI-compatible endpoint |
+| Feature | Description |
+|:---|:---|
+| **Simple setup** | Interactive wizard asks numbered questions — pick a provider, paste your key, choose a model |
+| **Live model list** | Automatically fetches available models from your provider's API |
+| **Remote access** | Connect to LM Studio or Ollama running on another computer (LAN or internet) |
+| **Tool calling** | Read, write, and search files; run shell commands; search the web |
+| **Terminal bell** | Rings when Code Buddy finishes thinking and is ready |
+| **Streaming** | Watch the AI think and respond in real time |
 
 ---
 
@@ -88,60 +52,121 @@ cargo install --git https://github.com/simpletoolsindia/code-buddy --bin code-bu
 
 | Provider | Type | Notes |
 |:---|:---:|---|
-| **Ollama** | Local | `http://localhost:11434` · models auto-listed |
-| **LM Studio** | Local | `http://localhost:1234` · models auto-listed |
-| **OpenRouter** | Cloud | Hundreds of open & commercial models |
-| **OpenAI** | Cloud | GPT-4o, o3, and more |
-| **NVIDIA** | Cloud | NVIDIA AI Endpoints |
-| **Custom** | Either | Any OpenAI-compatible endpoint |
+| **NVIDIA NIM** | Cloud | Free credits, Llama/Mistral/Gemma models. Setup fetches models live from the API. |
+| **OpenRouter** | Cloud | 200+ models including free tier |
+| **OpenAI** | Cloud | GPT-4o, o1, o3 |
+| **LM Studio** | Local/Remote | Run free models on your PC or a remote server |
+| **Ollama** | Local/Remote | Free, no GPU needed, supports remote access |
+| **Custom** | Either | Any OpenAI-compatible API endpoint |
 
 ---
 
 ## Usage
 
-### Start an interactive session
+### Interactive chat (recommended)
 
 ```bash
 code-buddy
 ```
 
-#### Slash commands
-
-| Command | What it does |
-|:---|:---|
-| `/tools` | List all active tools |
-| `/status` | Show provider, model, and web tool status |
-| `/exit` | End the session |
+The TUI shows your provider and model, lists available tools, and rings a bell when the AI is done thinking.
 
 ### One-shot question
 
 ```bash
-code-buddy ask "How do I reverse a linked list?" --file src/main.rs
+code-buddy ask "How do I reverse a string in Python?"
 ```
 
-### Manage config
+### Commands
 
-```bash
-code-buddy setup                              # re-run the setup wizard
-code-buddy config show                        # view all settings
-code-buddy config set brave_api_key YOUR_KEY  # update a single field
-code-buddy config path                        # show config file location
-```
+| Command | What it does |
+|:---|:---|
+| `/help` | Show all commands |
+| `/quit` | Exit Code Buddy |
+| `/clear` | Start a new conversation |
+| `/status` | Check provider, model, and tools |
+| `/tools` | See all available tools |
+| `/model` | Show current model |
+| `/provider` | Show current provider and URL |
 
 ---
 
 ## Tools
 
-| Tool | Description |
-|:---|:---|
-| `read_file` | Read any file |
-| `write_file` | Create or overwrite a file |
-| `list_dir` | List directory contents |
-| `run_shell` | Execute a shell command |
-| `web_search` | Search the web via Brave or SerpAPI |
-| `web_fetch` | Fetch a webpage and render it as clean text |
+Code Buddy has built-in tools it can use to help you. No extra setup needed.
 
-### Enable web search
+| Tool | What it does |
+|:---|:---|
+| `read_file` | Read any file in your project |
+| `write_file` | Create or overwrite a file |
+| `edit_file` | Make targeted changes to a file |
+| `glob_search` | Find files by pattern (e.g. `*.rs`) |
+| `grep_search` | Search inside files for text |
+| `run_shell` | Execute shell commands |
+| `web_search` | Search the internet (needs Brave API key) |
+| `web_fetch` | Read a webpage as clean text |
+
+---
+
+## Setup Wizard
+
+Run `code-buddy setup` anytime to reconfigure. The wizard:
+
+1. **Choose provider** — numbered list, no arrow keys needed
+2. **Enter API key** — or press Enter for local servers
+3. **Pick a model** — popular models shown first
+4. **Enable web search** — optional (needs [Brave Search API key](https://brave.com/search/api/))
+
+For **NVIDIA** (recommended for new users):
+- Get a free key at [build.nvidia.com](https://build.nvidia.com/)
+- Sign up → click your profile → Copy API Key
+- Paste it when the wizard asks
+
+For **LM Studio** (runs free on your PC):
+- Download [LM Studio](https://lmstudio.ai/) and install it
+- Load a model in LM Studio
+- Press Enter when the wizard asks for the server URL
+
+For **remote access** (connect to a server on your LAN):
+- Enter the server's IP address when asked for the URL
+- Example: `http://192.168.1.100:1234`
+
+---
+
+## Configuration
+
+Config file: `~/.config/code-buddy/config.toml`
+
+```bash
+code-buddy config show              # View current settings
+code-buddy config set model gpt-4o  # Change model
+code-buddy config set provider nvidia
+```
+
+### Environment variables
+
+Every setting can be overridden with an env var:
+
+| Setting | Env Variable | Default |
+|:---|:---|:---|
+| Provider | `CODE_BUDDY_PROVIDER` | `lm-studio` |
+| Model | `CODE_BUDDY_MODEL` | — |
+| API Key | `CODE_BUDDY_API_KEY` | — |
+| Endpoint | `CODE_BUDDY_ENDPOINT` | provider default |
+| Streaming | `CODE_BUDDY_STREAMING` | `true` |
+| Timeout | `CODE_BUDDY_TIMEOUT_SECONDS` | `120` |
+| Brave API Key | `BRAVE_SEARCH_API_KEY` | — |
+
+Example with environment variables:
+
+```bash
+CODE_BUDDY_PROVIDER=nvidia \
+CODE_BUDDY_MODEL=meta/llama-3.3-70b-instruct \
+CODE_BUDDY_API_KEY=nvapi-... \
+code-buddy ask "Hello"
+```
+
+### Web search
 
 ```bash
 # Brave Search (preferred) — https://brave.com/search/api/
@@ -150,47 +175,8 @@ code-buddy config set brave_api_key YOUR_KEY
 # SerpAPI (fallback) — https://serpapi.com/
 code-buddy config set serpapi_key YOUR_KEY
 
-# Firecrawl (richer extraction, optional) — https://firecrawl.dev/
+# Firecrawl (better page extraction) — https://firecrawl.dev/
 code-buddy config set firecrawl_api_key YOUR_KEY
-```
-
----
-
-## Configuration
-
-Config file: `~/.config/code-buddy/config.toml`
-
-Every field can be overridden with an environment variable.
-
-| Field | Environment Variable | Default |
-|:---|:---|:---|
-| `provider` | `CODE_BUDDY_PROVIDER` | `lm_studio` |
-| `model` | `CODE_BUDDY_MODEL` | `mistral` |
-| `api_key` | `CODE_BUDDY_API_KEY` | — |
-| `endpoint` | `CODE_BUDDY_ENDPOINT` | provider default |
-| `system_prompt` | `CODE_BUDDY_SYSTEM_PROMPT` | built-in |
-| `temperature` | `CODE_BUDDY_TEMPERATURE` | `0.2` |
-| `max_tokens` | `CODE_BUDDY_MAX_TOKENS` | `4096` |
-| `timeout_seconds` | `CODE_BUDDY_TIMEOUT_SECONDS` | `60` |
-| `brave_api_key` | `CODE_BUDDY_BRAVE_API_KEY` | — |
-| `serpapi_key` | `CODE_BUDDY_SERPAPI_KEY` | — |
-| `firecrawl_api_key` | `CODE_BUDDY_FIRECRAWL_API_KEY` | — |
-| `streaming` | `CODE_BUDDY_STREAMING` | `true` |
-
----
-
-## Homebrew
-
-The tap at [`simpletoolsindia/homebrew-tap`](https://github.com/simpletoolsindia/homebrew-tap) is automatically updated on every release via GitHub Actions.
-
-```bash
-# One-liner (no separate tap step needed)
-brew install simpletoolsindia/tap/code-buddy
-
-# Or add the tap first, then use short names for updates
-brew tap simpletoolsindia/tap
-brew install code-buddy
-brew upgrade code-buddy
 ```
 
 ---
@@ -206,22 +192,6 @@ cargo build --release
 ./target/release/code-buddy --version
 ```
 
-Or build via the installer:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/simpletoolsindia/code-buddy/main/install.sh | sh -s -- --source
-```
-
----
-
-## Releasing
-
-Push a version tag to trigger the full release pipeline — binaries for Linux x64/arm64, macOS x64/arm64, and Windows x64 are built, a GitHub Release is published, and the Homebrew formula is updated automatically.
-
-```bash
-make publish TAG=v0.2.0
-```
-
 ---
 
 ## Project Layout
@@ -230,15 +200,11 @@ make publish TAG=v0.2.0
 crates/
 ├── cli/        # Binary, commands, TUI
 ├── config/     # Config loading & env overrides
-├── providers/  # Provider adapters + SSE streaming
+├── providers/  # Provider adapters + live model fetching
 ├── tools/      # Tool registry: file, shell, web
 ├── errors/     # Shared error types
-└── runtime/    # Conversation loop & tool dispatch
-```
-
-```bash
-make test   # run all 241 tests
-make lint   # clippy + rustfmt check
+├── runtime/    # Conversation loop & tool dispatch
+└── transport/ # OpenAI-compatible HTTP + SSE streaming
 ```
 
 ---

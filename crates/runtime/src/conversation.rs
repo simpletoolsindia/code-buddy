@@ -51,7 +51,6 @@ use tracing::{debug, instrument, warn};
 // ── Config ────────────────────────────────────────────────────────────────────
 
 /// Runtime configuration for a conversation session.
-#[derive(Debug, Clone)]
 pub struct RuntimeConfig {
     /// Model identifier passed to the provider.
     pub model: String,
@@ -76,6 +75,9 @@ pub struct RuntimeConfig {
     /// complete turn (user + assistant pair). A value of `0` disables
     /// compaction. Default: `max_tokens * 6` (six response windows of context).
     pub context_token_budget: u32,
+    /// Optional callback invoked when a tool is about to execute.
+    /// Useful for UI notifications (e.g. "Running read_file…").
+    pub on_tool_call: Option<Box<dyn Fn(&str) + Send>>,
 }
 
 impl Default for RuntimeConfig {
@@ -91,6 +93,25 @@ impl Default for RuntimeConfig {
             tool_timeout: Duration::from_secs(30),
             debug: false,
             context_token_budget: max_tokens.saturating_mul(6),
+            on_tool_call: None,
+        }
+    }
+}
+
+impl Clone for RuntimeConfig {
+    fn clone(&self) -> Self {
+        Self {
+            model: self.model.clone(),
+            max_tokens: self.max_tokens,
+            temperature: self.temperature,
+            system_prompt: self.system_prompt.clone(),
+            streaming: self.streaming,
+            max_iterations: self.max_iterations,
+            tool_timeout: self.tool_timeout,
+            debug: self.debug,
+            context_token_budget: self.context_token_budget,
+            // Callbacks cannot be cloned — set to None
+            on_tool_call: None,
         }
     }
 }
@@ -469,6 +490,10 @@ impl ConversationRuntime {
             });
 
             for call in &tool_calls {
+                // Notify UI that a tool is starting
+                if let Some(ref cb) = self.config.on_tool_call {
+                    cb(&call.name);
+                }
                 let result = self.execute_tool(call).await;
                 let (content, is_error) = match result {
                     Ok(s) => (s, false),

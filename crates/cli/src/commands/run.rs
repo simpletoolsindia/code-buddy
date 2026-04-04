@@ -1,14 +1,11 @@
-//! `run` subcommand — Claude Code-style interactive REPL with tool-calling support.
+//! `run` subcommand — simple interactive mode for all users.
 //!
-//! # Visual design
-//! Inspired by Claude Code's terminal UX:
-//! - Branded header with `✻` sigil and box-drawing border
-//! - Cyan `❯` prompt
-//! - `indicatif` spinner during LLM inference
-//! - Colored tool-call and status blocks
-//! - `/status` reports web search availability
-//!
-//! Slash commands: /help /quit /exit /clear /model /provider /status /context /tools
+//! # UX goals (non-technical users)
+//! - Clear banner showing what model is active
+//! - "Thinking…" shown while AI is working
+//! - Tool call names shown so users know what's happening
+//! - Bell rings when AI needs attention
+//! - Simple slash commands (type /help to see them)
 
 use std::io::{self, Write};
 use std::time::Duration;
@@ -25,15 +22,12 @@ use tracing::debug;
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 const SLASH_COMMANDS: &[(&str, &str)] = &[
-    ("/help",     "Show available slash commands"),
+    ("/help",     "Show all commands"),
     ("/quit",     "Exit Code Buddy"),
     ("/exit",     "Exit Code Buddy"),
-    ("/clear",    "Clear conversation history and screen"),
-    ("/status",   "Show configuration and active tools"),
-    ("/tools",    "List all registered tools"),
-    ("/model",    "Show current model"),
-    ("/provider", "Show current provider"),
-    ("/context",  "Show conversation context size"),
+    ("/clear",    "Start a new conversation"),
+    ("/status",   "Check current model and provider"),
+    ("/tools",    "See what tools are available"),
 ];
 
 enum SlashResult {
@@ -48,6 +42,7 @@ enum SlashResult {
 pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
     print_banner(config);
 
+    // Check provider works
     let provider = match ProviderRegistry::from_config(config) {
         Ok(p) => p,
         Err(e) => {
@@ -55,13 +50,12 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
                 eprintln!("Error: {e}");
             } else {
                 eprintln!(
-                    "\n  {} Provider error: {e}",
-                    style("✘").red().bold()
+                    "\n  {}  Could not connect to {}",
+                    style("✘").red().bold(),
+                    style(&config.provider).bold()
                 );
-                eprintln!(
-                    "  Run {} to reconfigure.\n",
-                    style("code-buddy setup").bold()
-                );
+                eprintln!("  Error: {e}");
+                eprintln!("  Run {} to fix this.\n", style("code-buddy setup").bold());
             }
             return 1;
         }
@@ -78,11 +72,6 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
             config.firecrawl_api_key.clone(),
         );
         debug!("tools registered: {}", tools.tool_names().join(", "));
-    } else if !config.no_color {
-        println!(
-            "  {} Tool calling disabled for this session.",
-            style("◦").dim()
-        );
     }
 
     let rt_config = RuntimeConfig {
@@ -92,31 +81,40 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
         system_prompt: config.system_prompt.clone(),
         streaming: config.streaming,
         debug: config.debug,
+        on_tool_call: if config.no_color {
+            None
+        } else {
+            Some(Box::new(|name: &str| {
+                print!("\r\x1b[K");
+                println!("  {}  Running {}…", style("▶").yellow(), style(name).bold());
+                let _ = io::stdout().flush();
+            }))
+        },
         ..Default::default()
     };
 
     let mut runtime = ConversationRuntime::new(provider, tools, rt_config);
 
+    // Show active tools
+    let tool_names: Vec<String> = runtime.tool_definitions().into_iter().map(|d| d.name).collect();
+    if !tool_names.is_empty() && !config.no_color {
+        println!("  {}  Tools: {}", style("●").cyan(), tool_names.join(", "));
+        println!();
+    } else if !config.no_color {
+        println!("  {}  No tools enabled (--no-tools mode).", style("◦").dim());
+        println!();
+    }
+
+    // ── Main input loop ───────────────────────────────────────────────────────
     loop {
-        // Prompt.
-        if config.no_color {
-            print!("\n❯ ");
-        } else {
-            print!("\n{} ", Style::new().cyan().bold().apply_to("❯"));
-        }
+        print_prompt(config);
         io::stdout().flush().unwrap_or(());
 
         let mut input = String::new();
         match io::stdin().read_line(&mut input) {
             Ok(0) => {
-                if config.no_color {
-                    println!("\nGoodbye!");
-                } else {
-                    println!(
-                        "\n\n  {} Goodbye!\n",
-                        style("✻").magenta().bold()
-                    );
-                }
+                // Ctrl+D — clean exit
+                println!();
                 break;
             }
             Ok(_) => {}
@@ -131,7 +129,7 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
             continue;
         }
 
-        // Slash command routing.
+        // ── Slash commands ──────────────────────────────────────────────────
         if input.starts_with('/') {
             match handle_slash(&input, config, &mut runtime) {
                 SlashResult::Exit => break,
@@ -140,14 +138,14 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
                     if config.no_color {
                         eprintln!("{msg}");
                     } else {
-                        eprintln!("  {} {msg}", style("✘").red());
+                        eprintln!("  {}  {msg}", style("✘").red());
                     }
                 }
             }
             continue;
         }
 
-        // ── Spinner + LLM call ────────────────────────────────────────────────
+        // ── Thinking indicator ────────────────────────────────────────────────
         let spinner = if !config.no_color {
             let pb = ProgressBar::new_spinner();
             pb.set_style(
@@ -159,13 +157,14 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
             pb.enable_steady_tick(Duration::from_millis(80));
             Some(pb)
         } else {
+            println!("  Thinking…");
             None
         };
 
         println!();
 
         let spinner_clone = spinner.clone();
-        let no_color = config.no_color;
+
         let sink = TextSink::new(Box::new(move |text: &str| {
             if let Some(ref pb) = spinner_clone {
                 pb.suspend(|| {
@@ -176,7 +175,6 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
                 print!("{text}");
                 io::stdout().flush().unwrap_or(());
             }
-            let _ = no_color;
         }));
 
         match runtime.run_turn(&input, sink).await {
@@ -191,27 +189,30 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
                     println!();
                 }
 
+                // Tool call summary
                 if summary.tool_calls_made > 0 && !config.no_color {
+                    println!();
+                    let tools_msg = if summary.tool_calls_made == 1 {
+                        "1 tool used"
+                    } else {
+                        &format!("{} tools used", summary.tool_calls_made)
+                    };
+                    let steps_msg = if summary.iterations == 1 { "step" } else { "steps" };
                     println!(
-                        "\n  {}",
-                        Style::new().dim().apply_to(format!(
-                            "─── {} tool call{} across {} iteration{} ───",
-                            summary.tool_calls_made,
-                            if summary.tool_calls_made == 1 { "" } else { "s" },
-                            summary.iterations,
-                            if summary.iterations == 1 { "" } else { "s" },
-                        ))
+                        "  {}  {} — completed in {} {}",
+                        style("✔").green(),
+                        tools_msg,
+                        summary.iterations,
+                        steps_msg,
                     );
                 }
 
                 if config.debug {
                     eprintln!(
-                        "  {} tokens in={} out={} tool_calls={} iters={}",
+                        "  {} tokens: {} in / {} out",
                         Style::new().dim().apply_to("◦"),
                         summary.input_tokens,
                         summary.output_tokens,
-                        summary.tool_calls_made,
-                        summary.iterations,
                     );
                 }
             }
@@ -222,16 +223,30 @@ pub async fn run(config: &AppConfig, args: RunArgs) -> i32 {
                 if config.no_color {
                     eprintln!("Error: {e}");
                 } else {
-                    eprintln!("\n  {} {e}", style("✘").red().bold());
-                    eprintln!(
-                        "  {} Check /status or run code-buddy setup.",
-                        style("◦").dim()
-                    );
+                    eprintln!();
+                    eprintln!("  {}  Error: {e}", style("✘").red().bold());
+                    match e.to_string().contains("context") || e.to_string().contains("too large") {
+                        true => {
+                            eprintln!("  {}  Context too long. Type {} to start fresh.", style("ℹ").yellow(), style("/clear").bold());
+                        }
+                        false => {
+                            eprintln!("  {}  Run {} to check your setup.", style("ℹ").yellow(), style("/status").bold());
+                        }
+                    }
                 }
             }
         }
+
+        // Bell to get attention before next prompt
+        ring_bell();
     }
 
+    if !config.no_color {
+        println!();
+        println!("  {}  Goodbye! Run {} to chat again.\n", style("✻").magenta(), style("code-buddy").bold());
+    } else {
+        println!("Goodbye!\n");
+    }
     0
 }
 
@@ -244,27 +259,27 @@ fn handle_slash(
     runtime: &mut ConversationRuntime,
 ) -> SlashResult {
     let cmd = raw.split_whitespace().next().unwrap_or(raw);
-    let dim = Style::new().dim();
-    let cyan = Style::new().cyan();
-    let bold = Style::new().bold();
 
     match cmd {
         "/quit" | "/exit" => SlashResult::Exit,
 
         "/help" => {
             if config.no_color {
+                println!("Commands:");
                 for (c, d) in SLASH_COMMANDS {
                     println!("  {c:<14} {d}");
                 }
+                println!("  /model     Show current model");
+                println!("  /provider  Show current provider");
             } else {
                 println!();
-                println!("  {}", bold.apply_to("Slash commands"));
+                println!("  {}  Commands you can type:", style("?").cyan());
                 println!();
                 for (c, d) in SLASH_COMMANDS {
                     println!(
-                        "    {:<14} {}",
-                        cyan.apply_to(c),
-                        dim.apply_to(d)
+                        "    {:<14}  {}",
+                        style(c).cyan().bold(),
+                        style(d).dim()
                     );
                 }
                 println!();
@@ -276,9 +291,9 @@ fn handle_slash(
             runtime.clear_history();
             print!("\x1b[2J\x1b[H");
             if config.no_color {
-                println!("History cleared.");
+                println!("Started a new conversation.");
             } else {
-                println!("  {} Conversation history cleared.", style("✔").green());
+                println!("  {}  New conversation started.", style("✔").green());
             }
             SlashResult::Continue
         }
@@ -288,82 +303,79 @@ fn handle_slash(
                 println!("Provider:  {}", config.provider);
                 println!("Endpoint:  {}", config.resolved_endpoint());
                 println!("Model:     {}", config.model.as_deref().unwrap_or("(not set)"));
-                println!("Streaming: {}", config.streaming);
-                println!("History:   {} messages", runtime.history().len());
+                println!("Tools:     {} enabled", runtime.tool_definitions().len());
             } else {
                 println!();
-                println!("  {}", bold.apply_to("Configuration"));
-                let kv = |k: &str, v: String| {
-                    println!("    {:<20} {}", dim.apply_to(k), v);
-                };
-                kv("Provider", cyan.apply_to(&config.provider).to_string());
-                kv("Endpoint", config.resolved_endpoint());
-                kv("Model", config.model.as_deref().unwrap_or("(not set)").to_string());
-                kv("Streaming", config.streaming.to_string());
-                kv("Context", format!("{} messages", runtime.history().len()));
+                println!("  {}  Current setup:", style("●").cyan());
+                println!();
+                println!(
+                    "    {:<14}  {}",
+                    style("Provider").dim(),
+                    style(&config.provider).bold()
+                );
+                println!(
+                    "    {:<14}  {}",
+                    style("Model").dim(),
+                    style(config.model.as_deref().unwrap_or("(not set)")).bold()
+                );
+                println!(
+                    "    {:<14}  {}",
+                    style("URL").dim(),
+                    config.resolved_endpoint()
+                );
 
-                let mut tool_names: Vec<String> = runtime
+                let tool_names: Vec<String> = runtime
                     .tool_definitions()
                     .into_iter()
                     .map(|d| d.name)
                     .collect();
-                tool_names.sort();
-
-                println!();
-                println!("  {}", bold.apply_to("Tools"));
-                if tool_names.is_empty() {
-                    println!("    {} none", dim.apply_to("–"));
-                } else {
-                    for name in &tool_names {
-                        println!("    {} {name}", style("●").green());
+                println!(
+                    "    {:<14}  {}",
+                    style("Tools").dim(),
+                    if tool_names.is_empty() {
+                        "none".to_string()
+                    } else {
+                        tool_names.join(", ")
                     }
-                }
+                );
 
-                println!();
-                println!("  {}", bold.apply_to("Web"));
-                let search_status = if config.brave_api_key.is_some() {
-                    style("✔ Brave Search").green().to_string()
-                } else if config.serpapi_key.is_some() {
-                    style("✔ SerpAPI").green().to_string()
+                let web = if config.brave_api_key.is_some() || config.serpapi_key.is_some() {
+                    style("enabled").green().to_string()
                 } else {
-                    style("✘ no key (brave_api_key / serpapi_key)").red().to_string()
+                    style("not configured").dim().to_string()
                 };
-                let fetch_status = if config.firecrawl_api_key.is_some() {
-                    style("✔ Firecrawl").green().to_string()
-                } else {
-                    style("✔ plain HTTP").green().to_string()
-                };
-                println!("    {:<20} {}", dim.apply_to("web_search"), search_status);
-                println!("    {:<20} {}", dim.apply_to("web_fetch"), fetch_status);
+                println!("    {:<14}  {}", style("Web search").dim(), web);
                 println!();
             }
             SlashResult::Continue
         }
 
         "/tools" => {
-            let mut tool_names: Vec<String> = runtime
+            let tool_names: Vec<String> = runtime
                 .tool_definitions()
                 .into_iter()
                 .map(|d| d.name)
                 .collect();
-            tool_names.sort();
 
-            if tool_names.is_empty() {
-                println!("  No tools registered.");
-            } else if config.no_color {
-                println!("Tools ({}):", tool_names.len());
+            if config.no_color {
+                println!("Available tools:");
                 for name in &tool_names {
                     println!("  - {name}");
                 }
             } else {
                 println!();
-                println!(
-                    "  {} {} tools",
-                    bold.apply_to("Active tools"),
-                    tool_names.len()
-                );
-                for name in &tool_names {
-                    println!("    {} {}", style("●").cyan(), name);
+                if tool_names.is_empty() {
+                    println!("  {}  No tools enabled.", style("ℹ").yellow());
+                } else {
+                    println!(
+                        "  {}  {} tool{} available:",
+                        style("●").cyan(),
+                        tool_names.len(),
+                        if tool_names.len() == 1 { "" } else { "s" }
+                    );
+                    for name in &tool_names {
+                        println!("    • {}", style(name).cyan());
+                    }
                 }
                 println!();
             }
@@ -375,7 +387,12 @@ fn handle_slash(
             if config.no_color {
                 println!("Model: {model}");
             } else {
-                println!("\n  {} Model: {}\n", dim.apply_to("◦"), cyan.apply_to(model));
+                println!();
+                println!(
+                    "  {}  Model: {}\n",
+                    style("◦").dim(),
+                    style(model).bold()
+                );
             }
             SlashResult::Continue
         }
@@ -384,30 +401,38 @@ fn handle_slash(
             if config.no_color {
                 println!("Provider: {} ({})", config.provider, config.resolved_endpoint());
             } else {
+                println!();
                 println!(
-                    "\n  {} Provider: {} ({})\n",
-                    dim.apply_to("◦"),
-                    cyan.apply_to(&config.provider),
+                    "  {}  Provider: {} ({})\n",
+                    style("◦").dim(),
+                    style(&config.provider).bold(),
                     config.resolved_endpoint()
                 );
             }
             SlashResult::Continue
         }
 
-        "/context" => {
-            let n = runtime.history().len();
-            if config.no_color {
-                println!("Context: {n} messages");
-            } else {
-                println!("\n  {} Context: {} messages\n", dim.apply_to("◦"), n);
-            }
-            SlashResult::Continue
-        }
-
         _ => SlashResult::Error(format!(
-            "Unknown command '{cmd}'. Type /help for commands."
+            "Unknown command '{cmd}'. Type {} for help.",
+            style("/help").bold()
         )),
     }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn print_prompt(config: &AppConfig) {
+    if config.no_color {
+        print!("\n> ");
+    } else {
+        print!("\n{}", Style::new().cyan().bold().apply_to("❯ "));
+    }
+}
+
+/// Ring the terminal bell to get the user's attention.
+fn ring_bell() {
+    print!("\x07");
+    let _ = std::io::stdout().flush();
 }
 
 // ── Banner ────────────────────────────────────────────────────────────────────
@@ -426,13 +451,8 @@ fn print_banner(config: &AppConfig) {
     }
 
     let dim = Style::new().dim();
-    let provider_str = format!(
-        "{}  {}  {} {}",
-        Style::new().dim().apply_to("Provider"),
-        Style::new().cyan().apply_to(&config.provider),
-        Style::new().dim().apply_to("│ Model"),
-        Style::new().cyan().apply_to(config.model.as_deref().unwrap_or("(not set)"))
-    );
+    let model_name = config.model.as_deref().unwrap_or("(not set)");
+    let provider_name = &config.provider;
 
     println!();
     println!("  {}", dim.apply_to("╭────────────────────────────────────────────────────────────╮"));
@@ -440,13 +460,15 @@ fn print_banner(config: &AppConfig) {
         "  {}  {}  {}",
         dim.apply_to("│"),
         style("✻").magenta().bold(),
-        style("Welcome to Code Buddy — AI coding assistant            │").bold()
+        style("Code Buddy — AI coding assistant                          │").bold()
     );
     println!("  {}", dim.apply_to("╰────────────────────────────────────────────────────────────╯"));
     println!();
-    println!("  {provider_str}");
+    println!("  {}  {}", style("Provider").dim(), style(provider_name).cyan().bold());
+    println!("  {}  {}", style("Model").dim(), style(model_name).cyan());
+    println!();
     println!(
-        "  {} Type {} for commands, {} to exit.",
+        "  {} Type {} for help, {} to quit.",
         dim.apply_to("◦"),
         style("/help").bold(),
         style("/quit").bold()
