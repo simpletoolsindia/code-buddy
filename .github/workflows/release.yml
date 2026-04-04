@@ -64,7 +64,12 @@ jobs:
 
       - name: Strip binary (Unix)
         if: matrix.os != 'windows-latest'
-        run: strip target/${{ matrix.target }}/release/code-buddy
+        run: |
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-musl" ]; then
+            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/code-buddy
+          else
+            strip target/${{ matrix.target }}/release/code-buddy
+          fi
 
       - name: Package (tar.gz)
         if: matrix.archive == 'tar.gz'
